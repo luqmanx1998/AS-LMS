@@ -1,0 +1,57 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --default-font-family: "Inter", sans-serif;
+
+  /* TYPOGRAPHY */
+  --text-heading: 28px;
+  --leading-heading: 40px;
+
+  --text-heading-2: 26px;
+  --leading-heading-2: 40px;
+  
+  --text-subheading: 20px;
+  --leading-subheading: 100%;
+
+  --text-subheading-2: 18px;
+  --leading-subheading-2: 100%;
+
+  --text-body-1: 16px;
+  --leading-body-1: 24px;
+
+  --text-body-2: 14px;
+  --leading-body-2: 20px;
+
+}
+
+@layer components {
+  .heading-custom-1 {
+    @apply text-heading font-semibold leading-heading tracking-normal
+  }
+
+  .heading-custom-2 {
+    @apply text-heading-2 font-semibold leading-heading-2 tracking-normal
+  }
+
+  .subheading-custom-1 {
+    @apply text-subheading font-semibold leading-subheading tracking-normal
+  }
+
+  .subheading-custom-2 {
+    @apply text-subheading-2 font-semibold leading-subheading-2 tracking-normal
+  }
+
+  .body-1 {
+    @apply text-body-1 font-medium leading-body-1 tracking-normal
+  }
+
+  .body-2 {
+    @apply text-body-2 font-normal leading-body-2 tracking-normal
+  }
+
+  .pink-button {
+    @apply bg-[#EDCEAF] rounded-lg flex p-2 items-center justify-center cursor-pointer
+  }
+}
