@@ -2,7 +2,7 @@ function DeactivateUserModal({ setOpenDeactivateModal, employee}) {
 
 async function handleConfirmDeactivate() {
   try {
-    const response = await fetch('/api/delete-user', {
+    const response = await fetch('https://as-lms.vercel.app/api/delete-user', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: employee.id }),
