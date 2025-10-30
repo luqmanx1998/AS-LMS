@@ -1,17 +1,16 @@
 export const config = {
-  runtime: "nodejs", // ✅ make sure Vercel uses Node runtime
+  runtime: "nodejs",
 };
 
 /* eslint-disable no-undef */
 import { createClient } from "@supabase/supabase-js";
 
-// Create secure Supabase client using service role key
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// helper to always send CORS headers
+// helper to always send headers
 function send(res, status, body) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
@@ -20,13 +19,8 @@ function send(res, status, body) {
 }
 
 export default async function handler(req, res) {
-  if (req.method === "OPTIONS") {
-    return send(res, 200, {}); // preflight success
-  }
-
-  if (req.method !== "POST") {
-    return send(res, 405, { error: "Method not allowed" });
-  }
+  if (req.method === "OPTIONS") return send(res, 200, {});
+  if (req.method !== "POST") return send(res, 405, { error: "Method not allowed" });
 
   try {
     const { id, newPassword } = req.body;
@@ -35,8 +29,8 @@ export default async function handler(req, res) {
       return send(res, 400, { error: "User ID and new password required" });
     }
 
-    // ✅ Admin reset (requires service role)
-    const { error } = await supabase.auth.admin.updateUser(id, {
+    // ✅ Correct admin method
+    const { error } = await supabase.auth.admin.updateUserById(id, {
       password: newPassword,
     });
 
