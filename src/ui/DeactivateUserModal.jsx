@@ -1,26 +1,34 @@
-function DeactivateUserModal({ setOpenDeactivateModal, employee}) {
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-async function handleConfirmDeactivate() {
-  try {
-    const response = await fetch('https://as-lms.vercel.app/api/delete-user', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: employee.id }),
-    })
+function DeactivateUserModal({ onClose, employee}) {
 
-    const data = await response.json()
-    if (!response.ok) throw new Error(data.error || 'Failed to delete user')
+  async function deleteUser(id) {
+  const response = await fetch("https://as-lms.vercel.app/api/delete-user", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
 
-    alert(`User ${employee.full_name} deleted successfully!`)
-    setOpenDeactivateModal(false)
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || "Failed to delete user");
 
-    // Optional: refresh employee list
-    window.location.reload()
-  } catch (error) {
-    console.error('Delete error:', error)
-    alert('Error deleting user')
-  }
+  return data;
 }
+
+const queryClient = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: () => deleteUser(employee.id),
+    onSuccess: () => {
+      alert(`User ${employee.full_name} deleted successfully!`);
+      onClose();
+      queryClient.invalidateQueries(["employees"]); // Refresh employee list
+    },
+    onError: (error) => {
+      console.error("Delete error:", error);
+      alert("Error deleting user");
+    },
+  });
 
 
   return (
@@ -39,7 +47,7 @@ async function handleConfirmDeactivate() {
             strokeLinecap="round"
             strokeLinejoin="round"
             className="cursor-pointer"
-            onClick={() => setOpenDeactivateModal(false)}
+            onClick={() => onClose()}
           >
             <path d="M18 6 6 18" />
             <path d="m6 6 12 12" />
@@ -54,13 +62,14 @@ async function handleConfirmDeactivate() {
         <div className="flex gap-3 items-center justify-center mt-6">
           <button
             className="bg-[#03BC66] text-white rounded-md px-4 py-2 cursor-pointer"
-            onClick={handleConfirmDeactivate}
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending}
           >
-            Yes, Deactivate
+            {mutation.isPending ? "Deactivating..." : "Yes, Deactivate"}
           </button>
           <button
             className="bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer"
-            onClick={() => setOpenDeactivateModal(false)}
+            onClick={() => onClose()}
           >
             Cancel
           </button>
