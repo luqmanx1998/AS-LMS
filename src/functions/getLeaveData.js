@@ -80,27 +80,39 @@ export async function updateLeaveData(payload) {
 
   console.log("✅ Leave updated successfully:", data);
 
-  // Supabase Edge Function
-  const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
-    body: {
-      to: data.employees?.email,
-      employeeName: data.employees?.full_name,
-      leaveType: data.leave_type,
-      startDate: data.start_date,
-      endDate: data.end_date,
-      status: data.status,
-      remarks: data.remarks,
-    },
-  });
-
-  if (emailError) {
-    console.error("❌ Error sending email:", emailError);
-  } else {
-    console.log("📧 Email sent:", emailData);
+  // Check if we have the necessary data for email
+  if (!data.employees?.email) {
+    console.error("❌ No employee email found:", data);
+    return { data, error: new Error("No employee email found") };
   }
 
-  return { data, error };
+  try {
+    console.log("📨 Calling Edge Function...");
+    const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
+      body: {
+        to: data.employees.email,
+        employeeName: data.employees.full_name,
+        leaveType: data.leave_type,
+        startDate: data.start_date,
+        endDate: data.end_date,
+        status: data.status,
+        remarks: data.remarks,
+      },
+    });
+
+    if (emailError) {
+      console.error("❌ Edge Function error:", emailError);
+    } else {
+      console.log("📧 Edge Function response:", emailData);
+    }
+
+    return { data, emailError };
+  } catch (edgeError) {
+    console.error("❌ Edge Function invocation failed:", edgeError);
+    return { data, error: edgeError };
+  }
 }
+
 
 export async function getLeavesByEmployee(employeeId) {
   const { data: leaves, error } = await supabase
