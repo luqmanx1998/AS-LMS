@@ -71,7 +71,7 @@ export async function updateLeaveData(payload) {
       remarks,
       employees ( email, full_name )
     `)
-    .single(); // include employee details directly for email
+    .single();
 
   if (error) {
     console.error("❌ Error updating leave:", error);
@@ -80,21 +80,24 @@ export async function updateLeaveData(payload) {
 
   console.log("✅ Leave updated successfully:", data);
 
-  // ✅ Send email via Vercel API route
-  await fetch("/api/send-email", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    to: data.employees?.email,
-    employeeName: data.employees?.full_name,
-    leaveType: data.leave_type,
-    startDate: data.start_date,
-    endDate: data.end_date,
-    status: data.status,
-    remarks: data.remarks,
-  }),
-});
+  // Supabase Edge Function
+  const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
+    body: {
+      to: data.employees?.email,
+      employeeName: data.employees?.full_name,
+      leaveType: data.leave_type,
+      startDate: data.start_date,
+      endDate: data.end_date,
+      status: data.status,
+      remarks: data.remarks,
+    },
+  });
 
+  if (emailError) {
+    console.error("❌ Error sending email:", emailError);
+  } else {
+    console.log("📧 Email sent:", emailData);
+  }
 
   return { data, error };
 }
