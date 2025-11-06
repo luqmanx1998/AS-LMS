@@ -1,6 +1,7 @@
 import { useState } from "react";
 import supabase from "../functions/supabase";
 import { useNavigate } from "react-router";
+import { useQueryClient } from "@tanstack/react-query"; // ✅ import this
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -8,6 +9,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const queryClient = useQueryClient(); // ✅ initialize React Query client
 
   async function handleLogin(e) {
     e.preventDefault();
@@ -19,15 +21,12 @@ export default function LoginPage() {
       password,
     });
 
-    console.log(data);
-
     if (error) {
       setError(error.message);
       setLoading(false);
       return;
     }
 
-    // ✅ Get the logged in user's ID
     const user = data.user;
     if (!user) {
       setError("No user data returned.");
@@ -35,7 +34,7 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Fetch their employee record from 'employees' table
+    // ✅ Fetch their employee record
     const { data: employee, error: empError } = await supabase
       .from("employees")
       .select("*")
@@ -48,11 +47,14 @@ export default function LoginPage() {
       return;
     }
 
+    // ✅ Invalidate cache so any future query fetches fresh user data
+    queryClient.invalidateQueries(["currentEmployee"]);
+
     // ✅ Route based on role
     if (employee.role === "admin") {
-      navigate("/admin"); // Admin dashboard
+      navigate("/admin");
     } else if (employee.role === "employee") {
-      navigate("/employee"); // Employee dashboard
+      navigate("/employee");
     } else {
       setError("Unknown role. Please contact admin.");
     }

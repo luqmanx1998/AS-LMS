@@ -12,7 +12,7 @@ export async function getCurrentEmployee() {
     // ✅ Fetch employee data by the auth user's ID
     const { data: employee, error } = await supabase
       .from("employees")
-      .select("id, full_name, role, department, email")
+      .select("id, full_name, role, department, email, total_leaves")
       .eq("id", session.user.id)
       .single();
 

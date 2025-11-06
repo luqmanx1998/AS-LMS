@@ -1,19 +1,42 @@
 import supabase from "./supabase";
 
-export async function getLeaveData() {
-  const { data: leaves, error } = await supabase
-    .from('leaves')
+export async function getLeaveData(page = null, limit = null) {
+  let query = supabase
+    .from("leaves")
     .select(`
       *,
       employees(full_name, department)
-    `);
+    `, page !== null ? { count: "exact" } : undefined)
+    .order("created_at", { ascending: false });
+
+  if (page !== null && limit !== null) {
+    const start = (page - 1) * limit;
+    const end = start + limit - 1;
+    query = query.range(start, end);
+  }
+
+  const { data: leaves, error, count } = await query;
 
   if (error) {
     console.error(error);
     throw new Error("Failed to load leave data.");
   }
 
-  return leaves;
+  console.log('🔍 getLeaveData debug:', { 
+    page, 
+    limit, 
+    leavesCount: leaves?.length,
+    returnType: page !== null ? 'OBJECT {leaves, total}' : 'ARRAY leaves',
+    firstLeave: leaves?.[0] 
+  });
+
+  // ✅ FIX: Make this VERY clear
+  if (page !== null) {
+    return { leaves: leaves || [], total: count || 0 };
+  } else {
+    // ✅ This should return JUST the array
+    return leaves || [];
+  }
 }
 
 export async function upsertLeaveData(payload) {
@@ -31,22 +54,69 @@ export async function upsertLeaveData(payload) {
 }
 
 export async function updateLeaveData(payload) {
-    
-const { data, error } = await supabase
-  .from('leaves')
-  .update({ status: payload.status,
-   remarks: payload.remarks,
-   updated_at: new Date().toISOString(),
-   })
-  .eq('id', payload.id)
-  .select();
+  const { data, error } = await supabase
+    .from("leaves")
+    .update({
+      status: payload.status,
+      remarks: payload.remarks,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", payload.id)
+    .select(`
+      id,
+      leave_type,
+      start_date,
+      end_date,
+      status,
+      remarks,
+      employees ( email, full_name )
+    `)
+    .single(); // include employee details directly for email
 
-   if (error) {
-    console.error('Error updating leave:', error);
-  } else {
-    console.log('Leave updated successfully:', data);
+  if (error) {
+    console.error("❌ Error updating leave:", error);
+    return { data, error };
   }
 
+  console.log("✅ Leave updated successfully:", data);
+
+  // ✅ Send email via Vercel API route
+  await fetch("/api/send-email", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    to: data.employees?.email,
+    employeeName: data.employees?.full_name,
+    leaveType: data.leave_type,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    status: data.status,
+    remarks: data.remarks,
+  }),
+});
+
+
   return { data, error };
- 
+}
+
+export async function getLeavesByEmployee(employeeId) {
+  const { data: leaves, error } = await supabase
+    .from("leaves")
+    .select(`
+      id,
+      leave_type,
+      start_date,
+      end_date,
+      status,
+      created_at
+    `)
+    .eq("employee_id", employeeId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    throw new Error("Failed to load leave history.");
+  }
+
+  return leaves;
 }

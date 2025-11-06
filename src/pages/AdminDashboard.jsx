@@ -1,67 +1,137 @@
-import { useEffect } from "react";
-import { getLeaveData } from "../functions/getLeaveData"
-import AdminSidebar from "../ui/AdminSidebar"
-import Calendar from "../ui/Calendar"
-import ReviewLeavesModal from "../ui/ReviewLeavesModal"
+import { useQuery } from "@tanstack/react-query";
+import { getCurrentEmployee } from "../functions/getCurrentEmployee";
+import { getLeaveData } from "../functions/getLeaveData";
+import Calendar from "../ui/Calendar";
+import { Link } from "react-router";
 
 function AdminDashboard() {
+  // ✅ Fetch current admin data
+  const {
+    data: admin,
+    isLoading: isAdminLoading,
+    isError: isAdminError,
+  } = useQuery({
+    queryKey: ["currentEmployee"],
+    queryFn: getCurrentEmployee,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
 
-  useEffect(() => {
-    async function fetchLeaves() {
-      try {
-        const data = await getLeaveData();
-        console.log("Leaves data:", data); // This will show [] if empty
-        // setLeaves(data);
-      } catch (error) {
-        console.error("Error fetching leaves:", error);
-      }
-    }
+  // ✅ Fetch all leaves - handle both possible return formats
+  const {
+    data: leavesResponse,
+    isLoading: isLeavesLoading,
+    isError: isLeavesError,
+  } = useQuery({
+    queryKey: ["leaves"],
+    queryFn: getLeaveData,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    fetchLeaves();
-  }, []);
+  // Debug what we're getting
+  console.log('🔍 AdminDashboard leavesResponse:', leavesResponse);
+
+  if (isAdminLoading || isLeavesLoading)
+    return <p>Loading dashboard...</p>;
+  if (isAdminError) return <p>Error loading admin data.</p>;
+  if (!admin) return <p>Admin not found.</p>;
+
+  const totalLeaves = admin.total_leaves || {
+    annualLeave: { remaining: 0, used: 0 },
+    medicalLeave: { remaining: 0, used: 0 },
+  };
+
+  // ✅ Handle both array and object response formats
+  const leaves = Array.isArray(leavesResponse) 
+    ? leavesResponse 
+    : (leavesResponse?.leaves || []);
+  
+  console.log('🔍 Processed leaves:', leaves);
+
+  // ✅ Get the latest leave application
+  const latestLeave = leaves?.[0] || null;
+
+  console.log('🔍 Latest leave:', latestLeave);
+
+  // Helper for title casing leave type
+  const formatLeaveType = (type) =>
+    type.replace(/([A-Z])/g, " $1").replace(/^./, (s) => s.toUpperCase()).trim();
 
   return (
-    <>
-    {/* <AdminSidebar /> */}
-    <div>
-      {/* <ReviewLeavesModal /> */}
-      {/* <nav className="flex items-center justify-between mb-4">
-        <h1 className="heading-custom-2">Dashboard</h1> 
-        <div className="p-3 bg-[#F6F6F6] rounded-full">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-menu-icon lucide-menu"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></svg>
-        </div>
-      </nav> */}
+    <div className="space-y-6">
+      {/* Calendar */}
       <Calendar />
-      <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4 mb-4 max-h-[434px] overflow-y-scroll">
-        <h1 className="subheading-custom-1 pb-4">Leave Overviews</h1>
-        <div className="border-[#DFE4EA] border-[1px] px-2.5 flex justify-between rounded-lg p-1.5 items-center">
-          <div>
-            <h4 className="body-1 font-normal">Jofra</h4>
-            <span className="body-2 text-[#4A4A4A]">Annual</span>
-          </div>
-          <span className="body-2 text-[#4A4A4A]">Department</span>
-          <span className="body-2">Pending</span>
-        </div>
-      </div>
+
+      {/* 🧾 Latest Leave Application */}
       <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4 mb-4">
         <h1 className="subheading-custom-1 pb-4">Latest Leave Application</h1>
-        <div className="rounded-lg border-[#DFE4EA] border-[1px] px-4 py-4">
-          <h1 className="subheading-custom-1 mb-4">Annual Leave</h1>
-          <span className="subheading-custom-2 font-normal pb-4">
-            15 - 18 Sept 2025
-          </span>
-          <button className="flex w-full bg-[#EDCEAF] justify-center p-3 rounded-lg body-2 mt-4 mb-1">
-            Accept Review
-          </button>
-          <span className="body-2 text-[#4A4A4A]">
-            Submitted on 13 Sept
-          </span>
-        </div>
+
+        {latestLeave ? (
+          <div className="rounded-lg border-[#DFE4EA] border-[1px] px-4 py-4">
+            <h1 className="subheading-custom-1 mb-2">
+              {formatLeaveType(latestLeave.leave_type)} Leave
+            </h1>
+
+            {/* 🧩 Employee name and department */}
+            <p className="body-2 text-[#4A4A4A] mb-4">
+              <strong>{latestLeave.employees?.full_name || "Unknown Employee"}</strong>{" "}
+              — {latestLeave.employees?.department
+                ? latestLeave.employees.department.charAt(0).toUpperCase() +
+                  latestLeave.employees.department.slice(1)
+                : "N/A"}
+            </p>
+
+            <span className="body-1 font-normal pb-2 block">
+              {latestLeave.start_date} - {latestLeave.end_date}
+            </span>
+
+            <Link
+              to="/admin/leaveapps"
+              className="flex w-full bg-[#EDCEAF] justify-center p-3 rounded-lg body-2 mt-4 mb-1 cursor-pointer hover:bg-[#e0b98d]"
+            >
+              Accept Review
+            </Link>
+
+            <span className="body-2 text-[#4A4A4A]">
+              Submitted on{" "}
+              {new Date(latestLeave.created_at).toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </span>
+          </div>
+        ) : (
+          <p className="body-2 text-[#4A4A4A]">No recent applications found.</p>
+        )}
       </div>
 
+      {/* 🧮 Leave Balance Section */}
+      <div className="space-y-4">
+        <h2 className="subheading-custom-1">Your Leave Balances</h2>
+        {Object.entries(totalLeaves).map(([type, stats]) => (
+          <div
+            key={type}
+            className="rounded-2xl border-[#DFE4EA] border-[1px] p-4"
+          >
+            <h3 className="body-1 mb-4 capitalize">
+              {formatLeaveType(type)}
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-[#D4FDE5] rounded-lg p-3 space-y-2">
+                <p className="body-2">Remaining</p>
+                <span className="body-1 font-semibold">{stats.remaining}</span>
+              </div>
+              <div className="bg-[#EAF1FF] rounded-lg p-3 space-y-2">
+                <p className="body-2">Used</p>
+                <span className="body-1 font-semibold">{stats.used}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
-    </>
-  )
+  );
 }
 
-export default AdminDashboard
+export default AdminDashboard;

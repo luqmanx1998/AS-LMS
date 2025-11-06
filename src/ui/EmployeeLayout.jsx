@@ -1,11 +1,26 @@
 import { Outlet, useLocation } from "react-router"
 import EmpSidebar from "./EmpSidebar"
+import { useQuery } from "@tanstack/react-query";
+import { getCurrentEmployee } from "../functions/getCurrentEmployee";
 
 function EmployeeLayout( {empSidebarOpen, setEmpSidebarOpen} ) {
   const location = useLocation();
 
+  const {
+    data: employee,
+    isLoading: isEmpLoading,
+    isError: isEmpError,
+  } = useQuery({
+    queryKey: ["currentEmployee"],
+    queryFn: getCurrentEmployee,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+
   const getActiveLabel = () => {
-    if (location.pathname === "/employee") return "Dashboard";
+    if (!employee) return "";
+
+    if (location.pathname === "/employee") return `${employee.full_name}'s Dashboard`;
     if (location.pathname === "/employee/empleaves") return "My Leave";
     if (location.pathname === "/employee/empleavehist") return "My Leave History";
     return "";

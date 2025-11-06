@@ -1,17 +1,43 @@
 import { formatDate } from "../functions/dateFunctions";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateLeaveData } from "../functions/getLeaveData";
+import { updateEmployeeLeaveBalance } from "../functions/updateEmployeeLeaveBalance";
 import { useState } from "react";
 
 function ReviewLeavesModal({ setOpenReviewModal, leave }) {
   const [remark, setRemark] = useState(leave.remarks || "");
-
   const queryClient = useQueryClient();
 
-  const mutation = useMutation({
-    mutationFn: updateLeaveData,
+  const balanceMutation = useMutation({
+    mutationFn: async ({ employeeId, leaveType, startDate, endDate }) =>
+      await updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate),
     onSuccess: () => {
-      queryClient.invalidateQueries(["leaves"]);
+      queryClient.invalidateQueries(["employees"]);
+      console.log("✅ Employee leave balance updated!");
+    },
+    onError: (err) => {
+      console.error("❌ Failed to update employee leave balance:", err);
+      alert("Failed to update employee leave balance.");
+    },
+  });
+
+  const leaveStatusMutation = useMutation({
+    mutationFn: updateLeaveData,
+    onSuccess: async (data, variables) => {
+      const { status } = variables;
+
+
+      // ✅ If approved, also update employee's total_leaves
+      if (status === "Approved") {
+        balanceMutation.mutate({
+          employeeId: leave.employee_id,
+          leaveType: leave.leave_type,
+          startDate: leave.start_date,
+          endDate: leave.end_date,
+        });
+      }
+
+       queryClient.invalidateQueries(["leaves"]);
       alert("Leave status updated successfully!");
       setOpenReviewModal(false);
     },
@@ -22,12 +48,12 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
   });
 
   const handleStatusChange = (status) => {
-    mutation.mutate({ id: leave.id, status, remarks: remark });
+    leaveStatusMutation.mutate({ id: leave.id, status, remarks: remark });
   };
 
   return (
     <div className="top-0 left-0 fixed bg-[rgba(0,0,0,0.2)] z-100 w-full h-full flex justify-center">
-      <div className="bg-white p-4 fixed top-50 rounded-xl w-[95%] space-y-5">
+      <div className="bg-white p-4 fixed top-50 rounded-xl w-[95%] space-y-5 max-w-md">
         <div className="flex items-center justify-between">
           <h2 className="subheading-custom-2">Review Leave Application</h2>
           <svg
@@ -56,9 +82,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
           <p>{leave.leave_type}</p>
 
           <p>Date:</p>
-          <p>{`${formatDate(leave.start_date)} - ${formatDate(
-            leave.end_date
-          )}`}</p>
+          <p>{`${formatDate(leave.start_date)} - ${formatDate(leave.end_date)}`}</p>
 
           <p>Attachments:</p>
           <div className="flex flex-col gap-2">

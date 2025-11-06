@@ -1,11 +1,26 @@
 import { Outlet, useLocation } from "react-router"
 import AdminSidebar from "./AdminSidebar"
+import { getCurrentEmployee } from "../functions/getCurrentEmployee";
+import { useQuery } from "@tanstack/react-query";
 
 function AdminLayout({ adminSidebarOpen, setAdminSidebarOpen }) {
-  const location = useLocation(); // ✅ Correct
+  const location = useLocation();
+
+  const {
+    data: admin,
+    isLoading: isAdminLoading,
+    isError: isAdminError,
+  } = useQuery({
+    queryKey: ["currentEmployee"],
+    queryFn: getCurrentEmployee,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
 
   const getActiveLabel = () => {
-    if (location.pathname === "/admin") return "Dashboard";
+    if (!admin) return "";
+
+    if (location.pathname === "/admin") return `${admin.full_name}'s Dashboard`;
     if (location.pathname === "/admin/leaveapps") return "Leave Applications";
     if (location.pathname === "/admin/userlist") return "User List";
     if (location.pathname === "/admin/adminleave") return "My Leave";

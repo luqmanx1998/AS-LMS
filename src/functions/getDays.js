@@ -1,56 +1,58 @@
 import dayjs from "dayjs";
 
 export const getDays = (month = dayjs().month(), year = dayjs().year()) => {
-    const firstDayOfMonth = dayjs().year(year).month(month).startOf("month");
-    const lastDayOfMonth = dayjs().year(year).month(month).endOf("month");
+  const firstDayOfMonth = dayjs().year(year).month(month).startOf("month");
+  const lastDayOfMonth = dayjs().year(year).month(month).endOf("month");
 
-    const dateArray = [];
+  const dateArray = [];
 
-    //get previous days
+  // 🔹 Previous month's trailing days
+  for (let i = 0; i < firstDayOfMonth.day(); i++) {
+    const date = firstDayOfMonth.subtract(firstDayOfMonth.day() - i, "day");
+    dateArray.push({
+      date,
+      currentMonth: false,
+      today: date.isSame(dayjs(), "day"),
+    });
+  }
 
-    for (let i = 0; i < firstDayOfMonth.day(); i++) {
-        dateArray.push({
-            date: firstDayOfMonth.day(i),
-            currentMonth: false,
-        })
-    }
+  // 🔹 Current month days (1..=last day ✅)
+  for (let i = 1; i <= lastDayOfMonth.date(); i++) {
+    const currentDate = dayjs(new Date(year, month, i));
+    dateArray.push({
+      currentMonth: true,
+      date: currentDate,
+      today: currentDate.isSame(dayjs(), "day"),
+    });
+  }
 
-    //get current month days
-    for (let i = firstDayOfMonth.date(); i < lastDayOfMonth.date(); i++) {
-        const currentDate = firstDayOfMonth.date(i);
-        dateArray.push({
-            currentMonth: true,
-            date: currentDate,
-            today: currentDate.toDate().toDateString() === dayjs().toDate().toDateString()
-        });
-    }
+  // 🔹 Next month's leading days to fill 42 cells (6 weeks)
+  const forwardDays = 42 - dateArray.length;
+  for (let i = 1; i <= forwardDays; i++) {
+    const date = lastDayOfMonth.add(i, "day");
+    dateArray.push({
+      date,
+      currentMonth: false,
+      today: date.isSame(dayjs(), "day"),
+    });
+  }
 
-    //get forward days
-    const forwardDays = 42 - dateArray.length;
-    for (let i = lastDayOfMonth.date() + 1; i <= lastDayOfMonth.date() + forwardDays; i++) {
-        dateArray.push({
-            date: lastDayOfMonth.date(i),
-            currentMonth: false,
-        });
-    }
-
-    return dateArray;
-}
+  return dateArray;
+};
 
 export const daysOfTheWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 export const months = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December"
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
 ];
-

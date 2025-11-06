@@ -4,6 +4,8 @@ import CreateAccModal from "../ui/CreateAccModal";
 import DeactivateUserModal from "../ui/DeactivateUserModal";
 import { getEmployees } from "../functions/getEmployees";
 import ResetPasswordModal from "../ui/ResetPasswordModal";
+import ViewHistoryModal from "../ui/ViewHistoryModal";
+import EditBalanceModal from "../ui/EditBalanceModal";
 
 function UserList() {
   const [createAccModalIsOpen, setCreateAccModalIsOpen] = useState(false);
@@ -16,6 +18,10 @@ function UserList() {
     queryFn: getEmployees,
     staleTime: 5 * 60 * 1000,
   });
+
+  function capitalizeWords(str) {
+  return str.replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
   return (
     <>
@@ -38,6 +44,21 @@ function UserList() {
         onClose={() => setActiveModal(null)}
         />
       )}
+
+      {activeModal?.type === "viewHistory" && (
+        <ViewHistoryModal 
+        employee={activeModal.employee}
+         onClose={() => setActiveModal(null)}
+         />
+      )}
+
+            {activeModal?.type === "editBalance" && (
+        <EditBalanceModal
+          employee={activeModal.employee}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+
 
       <div>
         <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
@@ -86,7 +107,7 @@ function UserList() {
                 >
                   <span className="body-2">{employee.full_name}</span>
                   <span className="body-2">{employee.email}</span>
-                  <span className="body-2">{employee.department}</span>
+                 <span className="body-2">{capitalizeWords(employee.department)}</span>
 
                   {/* Action button */}
                   <span
@@ -119,7 +140,11 @@ function UserList() {
                   {selectedEmployee?.id === employee.id && (
                     <div className="rounded-2xl shadow-2xl px-2 py-4 w-[182px] flex flex-col items-center justify-center absolute top-5 right-0 z-1000 bg-white">
                       <ul className="list-none space-y-4">
-                        <li className="flex body-2 items-center gap-1.5 text-[#7F8184] cursor-pointer">
+                        <li className="flex body-2 items-center gap-1.5 text-[#7F8184] cursor-pointer"
+                        onClick={() => {
+                        setSelectedEmployee(null);
+                        setActiveModal({ type: "viewHistory", employee });
+                      }}>
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="18"
@@ -142,7 +167,13 @@ function UserList() {
                           <span>View History</span>
                         </li>
 
-                        <li className="flex body-2 items-center gap-1.5 text-[#7F8184] cursor-pointer">
+                        <li
+                          className="flex body-2 items-center gap-1.5 text-[#7F8184] cursor-pointer"
+                          onClick={() => {
+                            setSelectedEmployee(null);
+                            setActiveModal({ type: "editBalance", employee });
+                          }}
+                        >
                           <svg
                             xmlns="http://www.w3.org/2000/svg"
                             width="18"
