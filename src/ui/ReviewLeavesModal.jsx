@@ -133,7 +133,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
                 isProcessing
                   ? "opacity-60 cursor-not-allowed"
                   : ""
-              } bg-[##FF4120] text-white rounded-md px-4 py-2 cursor-pointer`}
+              } bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer`}
               onClick={() => handleStatusChange("Rejected")}
             >
               {isProcessing ? "Processing..." : "Reject"}

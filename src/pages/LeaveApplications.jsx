@@ -151,7 +151,7 @@ function LeaveApplications() {
                     leave.status.replace(/"/g, "") === "Approved"
                       ? "bg-[#03BC66]"
                       : leave.status.replace(/"/g, "") === "Rejected"
-                      ? "bg-[##FF4120]"
+                      ? "bg-[#FF4120]"
                       : "bg-[#F3C252]"
                   }`}
                 >
