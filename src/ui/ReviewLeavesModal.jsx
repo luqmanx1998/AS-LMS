@@ -26,8 +26,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
     onSuccess: async (data, variables) => {
       const { status } = variables;
 
-
-      // ✅ If approved, also update employee's total_leaves
+      // ✅ If approved, update employee's total_leaves
       if (status === "Approved") {
         balanceMutation.mutate({
           employeeId: leave.employee_id,
@@ -37,7 +36,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
         });
       }
 
-       queryClient.invalidateQueries(["leaves"]);
+      queryClient.invalidateQueries(["leaves"]);
       alert("Leave status updated successfully!");
       setOpenReviewModal(false);
     },
@@ -48,12 +47,13 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
   });
 
   const handleStatusChange = (status) => {
+    if (leaveStatusMutation.isPending) return; // prevent double-click
     leaveStatusMutation.mutate({ id: leave.id, status, remarks: remark });
   };
 
   return (
-    <div className="top-0 left-0 fixed bg-[rgba(0,0,0,0.2)] z-100 w-full h-full flex justify-center">
-      <div className="bg-white p-4 fixed top-50 rounded-xl w-[95%] space-y-5 max-w-md">
+    <div className="top-0 left-0 fixed bg-[rgba(0,0,0,0.2)] z-100 w-full h-full flex justify-center items-center">
+      <div className="bg-white p-4 rounded-xl w-[95%] space-y-5 max-w-md shadow-lg">
         <div className="flex items-center justify-between">
           <h2 className="subheading-custom-2">Review Leave Application</h2>
           <svg
@@ -114,16 +114,26 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
 
           <div className="flex gap-3 items-center mt-10 col-span-2 justify-center">
             <button
-              className="bg-[#03BC66] text-white rounded-md px-4 py-2 cursor-pointer"
+              disabled={leaveStatusMutation.isPending}
+              className={`${
+                leaveStatusMutation.isPending
+                  ? "opacity-60 cursor-not-allowed"
+                  : ""
+              } bg-[#03BC66] text-white rounded-md px-4 py-2`}
               onClick={() => handleStatusChange("Approved")}
             >
-              Approve
+              {leaveStatusMutation.isPending ? "Processing..." : "Approve"}
             </button>
             <button
-              className="bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer"
+              disabled={leaveStatusMutation.isPending}
+              className={`${
+                leaveStatusMutation.isPending
+                  ? "opacity-60 cursor-not-allowed"
+                  : ""
+              } bg-[#FF4120] text-white rounded-md px-4 py-2`}
               onClick={() => handleStatusChange("Rejected")}
             >
-              Reject
+              {leaveStatusMutation.isPending ? "Processing..." : "Reject"}
             </button>
           </div>
         </div>
