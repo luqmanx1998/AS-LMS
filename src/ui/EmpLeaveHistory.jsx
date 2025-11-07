@@ -14,19 +14,23 @@ function EmpLeaveHistory() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // ✅ 2. Get all leaves
- const {
-  data: leaves = [],
-  isLoading: isLeavesLoading,
-  isError: isLeavesError,
-} = useQuery({
-  queryKey: ["leaves"],
-  queryFn: getLeaveData, // Now returns just the array
-  staleTime: 5 * 60 * 1000,
-});
+  // ✅ 2. Get all leaves - handle both formats
+  const {
+    data: leavesResponse,
+    isLoading: isLeavesLoading,
+    isError: isLeavesError,
+  } = useQuery({
+    queryKey: ["leaves"],
+    queryFn: getLeaveData,
+    staleTime: 5 * 60 * 1000,
+  });
 
+  // ✅ Handle both array and object response formats
+  const leaves = Array.isArray(leavesResponse) 
+    ? leavesResponse 
+    : (leavesResponse?.leaves || []);
 
-  // ✅ 3. Filter only current employee’s leaves
+  // ✅ 3. Filter only current employee's leaves
   const employeeLeaves = employee
     ? leaves.filter((leave) => leave.employee_id === employee.id)
     : [];

@@ -44,16 +44,20 @@ function EmpLeaves() {
     retry: false,
   });
 
-  // ✅ 2. Fetch all leaves - now returns { leaves, total }
+  // ✅ 2. Fetch all leaves - handle both formats
   const { 
-  data: leaves = [], 
-  isLoading: isLeavesLoading 
-} = useQuery({
-  queryKey: ["leaves"],
-  queryFn: () => getLeaveData(), // Now returns just the array
-  staleTime: 5 * 60 * 1000,
-});
+    data: leavesResponse, 
+    isLoading: isLeavesLoading 
+  } = useQuery({
+    queryKey: ["leaves"],
+    queryFn: () => getLeaveData(),
+    staleTime: 5 * 60 * 1000,
+  });
 
+  // ✅ Handle both array and object response formats
+  const leaves = Array.isArray(leavesResponse) 
+    ? leavesResponse 
+    : (leavesResponse?.leaves || []);
 
   // ✅ Disable booked days
   const disabledDates = leaves.filter(

@@ -54,6 +54,8 @@ export async function upsertLeaveData(payload) {
 }
 
 export async function updateLeaveData(payload) {
+  console.log("🔄 updateLeaveData called with payload:", payload);
+  
   const { data, error } = await supabase
     .from("leaves")
     .update({
@@ -86,24 +88,29 @@ export async function updateLeaveData(payload) {
     return { data, error: new Error("No employee email found") };
   }
 
-  try {
-    console.log("📨 Calling Edge Function...");
-    const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
-      body: {
-        to: data.employees.email,
-        employeeName: data.employees.full_name,
-        leaveType: data.leave_type,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        status: data.status,
-        remarks: data.remarks,
-      },
-    });
+  console.log("📧 Preparing to send email to:", data.employees.email);
+
+    try {
+      console.log("📨 Calling Edge Function...");
+          const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
+    body: {
+      to: data.employees.email,
+      employeeName: data.employees.full_name,
+      leaveType: data.leave_type,
+      startDate: data.start_date,
+      endDate: data.end_date,
+      status: data.status,
+      remarks: data.remarks,
+    }
+  });
+
+
+    console.log("📧 Edge Function response:", { emailData, emailError });
 
     if (emailError) {
       console.error("❌ Edge Function error:", emailError);
     } else {
-      console.log("📧 Edge Function response:", emailData);
+      console.log("✅ Edge Function success:", emailData);
     }
 
     return { data, emailError };
