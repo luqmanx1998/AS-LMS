@@ -28,7 +28,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
 
       // ✅ If approved, update employee's total_leaves
       if (status === "Approved") {
-        balanceMutation.mutate({
+        await balanceMutation.mutateAsync({
           employeeId: leave.employee_id,
           leaveType: leave.leave_type,
           startDate: leave.start_date,
@@ -46,8 +46,11 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
     },
   });
 
+  // ✅ Check if EITHER mutation is pending
+  const isProcessing = leaveStatusMutation.isPending || balanceMutation.isPending;
+
   const handleStatusChange = (status) => {
-    if (leaveStatusMutation.isPending) return; // prevent double-click
+    if (isProcessing) return; // prevent double-click
     leaveStatusMutation.mutate({ id: leave.id, status, remarks: remark });
   };
 
@@ -114,26 +117,26 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
 
           <div className="flex gap-3 items-center mt-10 col-span-2 justify-center">
             <button
-              disabled={leaveStatusMutation.isPending}
+              disabled={isProcessing}
               className={`${
-                leaveStatusMutation.isPending
+                isProcessing
                   ? "opacity-60 cursor-not-allowed"
                   : ""
               } bg-[#03BC66] text-white rounded-md px-4 py-2`}
               onClick={() => handleStatusChange("Approved")}
             >
-              {leaveStatusMutation.isPending ? "Processing..." : "Approve"}
+              {isProcessing ? "Processing..." : "Approve"}
             </button>
             <button
-              disabled={leaveStatusMutation.isPending}
+              disabled={isProcessing}
               className={`${
-                leaveStatusMutation.isPending
+                isProcessing
                   ? "opacity-60 cursor-not-allowed"
                   : ""
               } bg-[#FF4120] text-white rounded-md px-4 py-2`}
               onClick={() => handleStatusChange("Rejected")}
             >
-              {leaveStatusMutation.isPending ? "Processing..." : "Reject"}
+              {isProcessing ? "Processing..." : "Reject"}
             </button>
           </div>
         </div>
