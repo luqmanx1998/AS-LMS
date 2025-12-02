@@ -2,31 +2,38 @@ import { formatDate } from "../functions/dateFunctions";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { updateLeaveData } from "../functions/getLeaveData";
 import { updateEmployeeLeaveBalance } from "../functions/updateEmployeeLeaveBalance";
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { useNotification } from "../context/NotificationContext";
+import Portal from "./Portal";
 
-function ReviewLeavesModal({ setOpenReviewModal, leave }) {
+function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
   const [remark, setRemark] = useState(leave.remarks || "");
+  const { setPopup } = useNotification();
   const queryClient = useQueryClient();
+  
+  const isProcessingRef = useRef(false);
 
   const balanceMutation = useMutation({
     mutationFn: async ({ employeeId, leaveType, startDate, endDate }) =>
       await updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate),
-    onSuccess: () => {
-      queryClient.invalidateQueries(["employees"]);
-      console.log("✅ Employee leave balance updated!");
-    },
+    onSuccess: () => queryClient.invalidateQueries(["employees"]),
     onError: (err) => {
       console.error("❌ Failed to update employee leave balance:", err);
-      alert("Failed to update employee leave balance.");
+      setShowSpinner(false);
+      isProcessingRef.current = false;
+      setPopup({
+        message: "Failed to update employee leave balance.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
   const leaveStatusMutation = useMutation({
     mutationFn: updateLeaveData,
-    onSuccess: async (data, variables) => {
+    onSuccess: async (_, variables) => {
       const { status } = variables;
 
-      // ✅ If approved, update employee's total_leaves
       if (status === "Approved") {
         await balanceMutation.mutateAsync({
           employeeId: leave.employee_id,
@@ -37,111 +44,148 @@ function ReviewLeavesModal({ setOpenReviewModal, leave }) {
       }
 
       queryClient.invalidateQueries(["leaves"]);
-      alert("Leave status updated successfully!");
-      setOpenReviewModal(false);
+      setShowSpinner(false);
+      isProcessingRef.current = false;
+
+      setPopup({
+        message: `Leave ${status.toLowerCase()} successfully!`,
+        type: "success",
+        onClose: () => setPopup(null),
+      });
     },
     onError: (error) => {
       console.error("Failed to update leave status:", error);
-      alert("Failed to update leave status.");
+      setShowSpinner(false);
+      isProcessingRef.current = false;
+      setPopup({
+        message: "Failed to update leave status.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
-  // ✅ Check if EITHER mutation is pending
-  const isProcessing = leaveStatusMutation.isPending || balanceMutation.isPending;
-
   const handleStatusChange = (status) => {
-    if (isProcessing) return; // prevent double-click
-    leaveStatusMutation.mutate({ id: leave.id, status, remarks: remark });
+    // Close modal immediately
+    setOpenReviewModal(false);
+
+    // Show confirmation popup
+    setPopup({
+      message:
+        status === "Approved"
+          ? "Are you sure you want to approve this leave request?"
+          : "Are you sure you want to reject this leave request?",
+      type: "confirm",
+      onConfirm: () => {
+        // User confirmed - start processing
+        setShowSpinner(true);
+        isProcessingRef.current = true;
+        leaveStatusMutation.mutate({
+          id: leave.id,
+          status,
+          remarks: remark,
+        });
+        setPopup(null);
+      },
+      onCancel: () => {
+        // User cancelled - reopen modal ONLY if not processing
+        if (!isProcessingRef.current) {
+          setOpenReviewModal(true);
+        }
+        setPopup(null);
+      },
+      onClose: () => {
+        // User closed popup - reopen modal ONLY if not processing
+        if (!isProcessingRef.current) {
+          setOpenReviewModal(true);
+        }
+        setPopup(null);
+      },
+    });
   };
 
   return (
-    <div className="top-0 left-0 fixed bg-[rgba(0,0,0,0.2)] z-100 w-full h-full flex justify-center items-center">
-      <div className="bg-white p-4 rounded-xl w-[95%] space-y-5 max-w-md shadow-lg">
-        <div className="flex items-center justify-between">
-          <h2 className="subheading-custom-2">Review Leave Application</h2>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="cursor-pointer"
-            onClick={() => setOpenReviewModal(false)}
-          >
-            <path d="M18 6 6 18" />
-            <path d="m6 6 12 12" />
-          </svg>
-        </div>
-
-        <div className="grid grid-cols-2 body-2 text-[#4A4A4A] gap-4">
-          <p>Employee:</p>
-          <p>{leave.employees.full_name}</p>
-
-          <p>Leave Type:</p>
-          <p>{leave.leave_type}</p>
-
-          <p>Date:</p>
-          <p>{`${formatDate(leave.start_date)} - ${formatDate(leave.end_date)}`}</p>
-
-          <p>Attachments:</p>
-          <div className="flex flex-col gap-2">
-            {leave.attachments?.length ? (
-              leave.attachments.map((file) => (
-                <a
-                  key={file.url}
-                  href={file.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 underline"
-                >
-                  {file.name}
-                </a>
-              ))
-            ) : (
-              <span>None</span>
-            )}
+    <Portal>
+      <div className="fixed inset-0 bg-[rgba(0,0,0,0.2)] z-[1000] flex justify-center items-center">
+        <div className="bg-white p-4 rounded-xl w-[95%] max-w-md shadow-lg space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="subheading-custom-2">Review Leave Application</h2>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="cursor-pointer"
+              onClick={() => setOpenReviewModal(false)}
+            >
+              <path d="M18 6 6 18" />
+              <path d="m6 6 12 12" />
+            </svg>
           </div>
 
-          <p>Remark: (optional)</p>
-          <textarea
-            rows="3"
-            cols="10"
-            className="border-2 border-gray-400 rounded-lg p-1"
-            value={remark}
-            onChange={(e) => setRemark(e.target.value)}
-          />
+          <div className="grid grid-cols-2 body-2 text-[#4A4A4A] gap-4">
+            <p>Employee:</p>
+            <p>{leave.employees.full_name}</p>
 
-          <div className="flex gap-3 items-center mt-10 col-span-2 justify-center">
-            <button
-              disabled={isProcessing}
-              className={`${
-                isProcessing
-                  ? "opacity-60 cursor-not-allowed"
-                  : ""
-              } bg-[#03BC66] text-white rounded-md px-4 py-2 cursor-pointer`}
-              onClick={() => handleStatusChange("Approved")}
-            >
-              {isProcessing ? "Processing..." : "Approve"}
-            </button>
-            <button
-              disabled={isProcessing}
-              className={`${
-                isProcessing
-                  ? "opacity-60 cursor-not-allowed"
-                  : ""
-              } bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer`}
-              onClick={() => handleStatusChange("Rejected")}
-            >
-              {isProcessing ? "Processing..." : "Reject"}
-            </button>
+            <p>Leave Type:</p>
+            <p>{leave.leave_type}</p>
+
+            <p>Date:</p>
+            <p>
+              {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
+            </p>
+
+            <p>Attachments:</p>
+            <div className="flex flex-col gap-2">
+              {leave.attachments?.length ? (
+                leave.attachments.map((file) => (
+                  <a
+                    key={file.url}
+                    href={file.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    {file.name}
+                  </a>
+                ))
+              ) : (
+                <span>None</span>
+              )}
+            </div>
+
+            <p>Remark: (optional)</p>
+            <textarea
+              rows="3"
+              cols="10"
+              className="border-2 border-gray-400 rounded-lg p-1"
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+            />
+
+            <div className="flex gap-3 items-center mt-10 col-span-2 justify-center">
+              <button
+                className="bg-[#03BC66] text-white rounded-md px-4 py-2 cursor-pointer hover:bg-[#02a95b]"
+                onClick={() => handleStatusChange("Approved")}
+              >
+                Approve
+              </button>
+              <button
+                className="bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer hover:bg-[#e03a1d]"
+                onClick={() => handleStatusChange("Rejected")}
+              >
+                Reject
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }
 

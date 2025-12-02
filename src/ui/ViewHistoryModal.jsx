@@ -1,13 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import { getLeavesByEmployee } from "../functions/getLeaveData";
+import LoadingSpinner from "./LoadingSpinner";
 
 function ViewHistoryModal({ employee, onClose }) {
   const { data: leaves = [], isLoading } = useQuery({
     queryKey: ["leaves", employee.id],
     queryFn: () => getLeavesByEmployee(employee.id),
   });
-
-  if (isLoading) return <p>Loading...</p>;
 
   return (
     <div className="fixed top-0 left-0 w-full h-full bg-[rgba(0,0,0,0.2)] z-[100] flex justify-center items-center">
@@ -35,7 +34,9 @@ function ViewHistoryModal({ employee, onClose }) {
         </div>
 
         <div className="space-y-3 max-h-[400px] overflow-y-auto">
-          {leaves.length === 0 ? (
+          {isLoading ? (
+              <LoadingSpinner message="Loading leave history..." />
+          ) : leaves.length === 0 ? (
             <p className="text-sm text-[#7F8184] text-center">
               No leave history found.
             </p>

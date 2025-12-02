@@ -142,3 +142,23 @@ export async function getLeavesByEmployee(employeeId) {
 
   return leaves;
 }
+
+export async function cancelLeave(id) {
+  const { data, error } = await supabase
+    .from("leaves")
+    .update({
+      status: "Cancelled",
+      updated_at: new Date().toISOString(),
+      remarks: "Cancelled by employee"
+    })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error("❌ Error cancelling leave:", error);
+    throw new Error("Failed to cancel leave");
+  }
+
+  return data;
+}

@@ -1,35 +1,67 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNotification } from "../context/NotificationContext";
 
-function DeactivateUserModal({ onClose, employee}) {
+function DeactivateUserModal({ onClose, employee, setShowSpinner }) {
+  const { setPopup } = useNotification();
 
   async function deleteUser(id) {
-  const response = await fetch("https://as-lms.vercel.app/api/delete-user", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ id }),
-  });
+    const response = await fetch("https://as-lms.vercel.app/api/delete-user", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
 
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "Failed to delete user");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Failed to delete user");
 
-  return data;
-}
+    return data;
+  }
 
-const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
 
   const mutation = useMutation({
     mutationFn: () => deleteUser(employee.id),
+    onMutate: () => {
+      setShowSpinner(true);
+    },
     onSuccess: () => {
-      alert(`User ${employee.full_name} deleted successfully!`);
+      setShowSpinner(false);
       onClose();
-      queryClient.invalidateQueries(["employees"]); // Refresh employee list
+      setTimeout(() => {
+        setPopup({
+          message: `User ${employee.full_name} deactivated successfully!`,
+          type: "success",
+          onClose: () => setPopup(null),
+        });
+      }, 100);
+      queryClient.invalidateQueries(["employees"]);
     },
     onError: (error) => {
       console.error("Delete error:", error);
-      alert("Error deleting user");
+      setShowSpinner(false);
+      setPopup({
+        message: `Error deactivating user: ${error.message}`,
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
+  const handleDeactivate = () => {
+    onClose();
+    setTimeout(() => {
+      setPopup({
+        message: `Are you sure you want to deactivate ${employee.full_name}? This action cannot be undone.`,
+        type: "confirm",
+        onConfirm: () => {
+          mutation.mutate();
+          setPopup(null);
+        },
+        onCancel: () => setPopup(null),
+        onClose: () => setPopup(null),
+      });
+    }, 100);
+  };
 
   return (
     <div className="top-0 left-0 fixed bg-[rgba(0,0,0,0.2)] z-[100] w-full h-full flex justify-center items-center">
@@ -62,7 +94,7 @@ const queryClient = useQueryClient();
         <div className="flex gap-3 items-center justify-center mt-6">
           <button
             className="bg-[#03BC66] text-white rounded-md px-4 py-2 cursor-pointer"
-            onClick={() => mutation.mutate()}
+            onClick={handleDeactivate}
             disabled={mutation.isPending}
           >
             {mutation.isPending ? "Deactivating..." : "Yes, Deactivate"}
@@ -70,6 +102,7 @@ const queryClient = useQueryClient();
           <button
             className="bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer"
             onClick={() => onClose()}
+            disabled={mutation.isPending}
           >
             Cancel
           </button>

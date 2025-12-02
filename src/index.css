@@ -55,3 +55,15 @@
     @apply bg-[#EDCEAF] rounded-lg flex p-2 items-center justify-center cursor-pointer
   }
 }
+
+@keyframes slide-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-slide-in {
+  animation: slide-in 0.25s ease-out;
+}

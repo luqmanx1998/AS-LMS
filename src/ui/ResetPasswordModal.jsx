@@ -1,11 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useNotification } from "../context/NotificationContext";
 
-function ResetPasswordModal({ employee, onClose }) {
+function ResetPasswordModal({ employee, onClose, setShowSpinner }) {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { setPopup } = useNotification();
 
   async function resetPassword(id, newPassword) {
     const response = await fetch("https://as-lms.vercel.app/api/reset-password", {
@@ -23,19 +25,38 @@ function ResetPasswordModal({ employee, onClose }) {
 
   const mutation = useMutation({
     mutationFn: ({ id, newPassword }) => resetPassword(id, newPassword),
+    onMutate: () => {
+      setShowSpinner(true);
+    },
     onSuccess: () => {
-      alert(`Password reset for ${employee.full_name} successfully`);
-      queryClient.invalidateQueries(["employees"]);
+      setShowSpinner(false);
       onClose();
+      setTimeout(() => {
+        setPopup({
+          message: `Password reset for ${employee.full_name} successfully!`,
+          type: "success",
+          onClose: () => setPopup(null),
+        });
+      }, 100);
+      queryClient.invalidateQueries(["employees"]);
     },
     onError: (err) => {
-      alert(`Error: ${err.message}`);
+      setShowSpinner(false);
+      setPopup({
+        message: `Error: ${err.message}`,
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
   const handleReset = () => {
     if (newPassword !== confirmPassword) {
-      alert("Passwords do not match");
+      setPopup({
+        message: "Passwords do not match!",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
       return;
     }
     mutation.mutate({ id: employee.id, newPassword });

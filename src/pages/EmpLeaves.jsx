@@ -6,16 +6,80 @@ import { upsertLeaveData, getLeaveData } from "../functions/getLeaveData";
 import { getCurrentEmployee } from "../functions/getCurrentEmployee";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNotification } from "../context/NotificationContext";
+import LoadingSpinner from "../ui/LoadingSpinner";
 
-// ✅ Safe version of getDatesBetween (timezone-proof, includes end date)
+
+// 📌 Custom Dropdown (same as AdminLeave)
+function CustomSelect({ value, onChange, options, placeholder = "Select..." }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const close = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  const selectedOption = options.find((o) => o.value === value);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <div
+        className="border-[#DFE4EA] border p-2 rounded-lg bg-white cursor-pointer flex justify-between items-center w-full lg:w-[238px]"
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className={value ? "text-black" : "text-gray-400"}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          fill="none"
+          strokeWidth="2"
+          className={`transition-transform ${isOpen ? "rotate-180" : ""}`}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </div>
+
+      {isOpen && (
+        <div className="absolute top-full left-0 w-full bg-white border rounded-lg shadow-lg z-20 mt-1 max-h-60 overflow-auto">
+          {options.map((option) => (
+            <div
+              key={option.value}
+              className={`p-3 cursor-pointer hover:bg-[#EDCEAF] ${
+                value === option.value ? "bg-[#EDCEAF] font-semibold" : ""
+              }`}
+              onClick={() => {
+                onChange(option.value);
+                setIsOpen(false);
+              }}
+            >
+              {option.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 📌 Safe date-range generator
 function getDatesBetween(start, end) {
   if (!start || !end) return [];
   const dates = [];
-  // Use UTC to avoid timezone issues
   const current = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
   const stop = new Date(Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()));
-  
   while (current <= stop) {
     dates.push(new Date(current));
     current.setUTCDate(current.getUTCDate() + 1);
@@ -23,267 +87,255 @@ function getDatesBetween(start, end) {
   return dates;
 }
 
-function EmpLeaves() {
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
-  const [isUnavailable, setIsUnavailable] = useState(false);
-  const [notEnoughBalance, setNotEnoughBalance] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState([]);
+export default function EmpLeaves() {
   const methods = useForm();
   const queryClient = useQueryClient();
+  const { setPopup } = useNotification();
 
-  // ✅ 1. Fetch current employee
-  const {
-    data: employee,
-    isLoading: isEmployeeLoading,
-    isError: isEmployeeError,
-  } = useQuery({
+  const [startDate, setStartDate] = useState(null);
+  const [endDate, setEndDate] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [showSpinner, setShowSpinner] = useState(false);
+  const [isUnavailable, setIsUnavailable] = useState(false);
+
+  const leaveType = methods.watch("leaveType");
+
+  // ✔ New leave types
+  const leaveOptions = [
+    { value: "Annual", label: "Annual Leave" },
+    { value: "Medical", label: "Medical Leave" },
+    { value: "Compassionate", label: "Compassionate Leave" },
+    { value: "Hospitalisation", label: "Hospitalisation Leave" },
+    { value: "Unpaid", label: "Unpaid Leave" },
+  ];
+
+  // 1. Fetch employee
+  const { data: employee, isLoading: empLoading } = useQuery({
     queryKey: ["currentEmployee"],
     queryFn: getCurrentEmployee,
-    staleTime: 10 * 60 * 1000,
-    retry: false,
+    staleTime: 600_000,
   });
 
-  // ✅ 2. Fetch all leaves - handle both formats
-  const { 
-    data: leavesResponse, 
-    isLoading: isLeavesLoading 
-  } = useQuery({
+  // 2. Fetch leaves
+  const { data: leavesResponse, isLoading: leavesLoading } = useQuery({
     queryKey: ["leaves"],
     queryFn: () => getLeaveData(),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 300_000,
   });
 
-  // ✅ Handle both array and object response formats
-  const leaves = Array.isArray(leavesResponse) 
-    ? leavesResponse 
-    : (leavesResponse?.leaves || []);
+  const leaves = Array.isArray(leavesResponse)
+    ? leavesResponse
+    : leavesResponse?.leaves || [];
 
-  // ✅ Disable booked days
-  const disabledDates = leaves.filter(
-      (leave) =>
-        leave.leave_type !== "Unpaid" &&
-        leave.leave_type !== "Medical" &&
-        leave.status !== "Rejected"
-    )
-    .flatMap((leave) => {
-      const start = new Date(`${leave.start_date}T00:00:00`);
-      const end = new Date(`${leave.end_date}T00:00:00`);
-      return getDatesBetween(start, end);
-    });
+  // 3. Blocked dates only for ANNUAL
+  const disabledDates =
+    leaves
+      .filter(
+        (leave) =>
+          leave.leave_type === "Annual" && leave.status !== "Rejected"
+      )
+      .flatMap((leave) =>
+        getDatesBetween(
+          new Date(`${leave.start_date}T00:00:00`),
+          new Date(`${leave.end_date}T00:00:00`)
+        )
+      );
 
-  // ✅ 3. Mutation for submitting leave
+  // 4. Mutation
   const leaveMutation = useMutation({
     mutationFn: upsertLeaveData,
+    onMutate: () => setShowSpinner(true),
     onSuccess: () => {
-      alert("Leave application submitted successfully!");
+      setShowSpinner(false);
+      setPopup({ message: "Leave submitted!", type: "success", onClose: () => setPopup(null) });
       queryClient.invalidateQueries(["leaves"]);
       methods.reset();
       setStartDate(null);
       setEndDate(null);
+      setSelectedFiles([]);
     },
-    onError: (err) => {
-      console.error("Error submitting leave:", err);
-      alert("Failed to submit leave application.");
+    onError: () => {
+      setShowSpinner(false);
+      setPopup({ message: "Failed to submit leave.", type: "error", onClose: () => setPopup(null) });
     },
   });
 
-  const leaveType = methods.watch("leaveType");
+  // 5. Date change handler
+  const handleDateChange = (dates) => {
+    const [start, end] = dates;
+    setStartDate(start);
+    setEndDate(end);
 
-  // ✅ 4. Balance check
-  useEffect(() => {
-    if (!employee || !startDate || !endDate || !leaveType) return;
+    methods.setValue("startDate", start);
+    methods.setValue("endDate", end);
 
-    const total_leaves = employee.total_leaves || {};
-    const keyMap = {
-      Annual: "annualLeave",
-      Medical: "medicalLeave",
-      Unpaid: "unpaidLeave",
-    };
-    const leaveKey = keyMap[leaveType];
-    const leaveBalance = total_leaves[leaveKey]?.remaining ?? 0;
-    const selectedDays = getDatesBetween(startDate, endDate).length;
-
-    if (leaveType !== "Unpaid" && selectedDays > leaveBalance) {
-      setNotEnoughBalance(true);
+    // Only Annual leave checks available dates
+    if (leaveType === "Annual" && start && end) {
+      const range = getDatesBetween(start, end);
+      const hasOverlap = range.some((d) =>
+        disabledDates.some((blocked) => d.toDateString() === blocked.toDateString())
+      );
+      setIsUnavailable(hasOverlap);
     } else {
-      setNotEnoughBalance(false);
+      setIsUnavailable(false);
     }
-  }, [employee, startDate, endDate, leaveType]);
+  };
 
-  // ✅ 5. Submit handler
+  // 6. Form submit
   const onSubmit = async (data) => {
-  if (!employee) {
-    alert("Error: No logged-in employee found.");
-    return;
-  }
+    if (!employee) return;
 
-  if (notEnoughBalance) {
-    alert(`Not enough ${data.leaveType} leave balance.`);
-    return;
-  }
+    let uploadedUrls = [];
 
-  let uploadedUrls = [];
-  if (data.documents?.length > 0) {
-    for (const file of data.documents) {
-      const url = await uploadAttachment(employee.id, file);
-      uploadedUrls.push({ name: file.name, url });
+    if (data.documents?.length > 0) {
+      setShowSpinner(true);
+      for (const file of data.documents) {
+        const url = await uploadAttachment(employee.id, file);
+        uploadedUrls.push({ name: file.name, url });
+      }
     }
-  }
 
-  // ✅ FIX: Use local date methods instead of toISOString()
-  const formatDateForDB = (date) => {
-    if (!date) return null;
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    const formatDate = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, "0");
+      const d = String(date.getDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
+    leaveMutation.mutate({
+      employee_id: employee.id,
+      leave_type: data.leaveType,
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
+      attachments: uploadedUrls.length ? uploadedUrls : null,
+      status: "Pending",
+      remarks: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
   };
 
-  const payload = {
-    employee_id: employee.id,
-    leave_type: data.leaveType,
-    start_date: formatDateForDB(data.startDate),
-    end_date: formatDateForDB(data.endDate),
-    attachments: uploadedUrls.length > 0 ? uploadedUrls : null,
-    status: "Pending",
-    remarks: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
-
-  leaveMutation.mutate(payload);
-};
-
-  if (isEmployeeLoading || isLeavesLoading) return <p>Loading leave form...</p>;
-  if (isEmployeeError) return <p>Error loading employee data.</p>;
+  if (empLoading || leavesLoading)
+    return <LoadingSpinner message="Loading leave form..." />;
 
   return (
-    <FormProvider {...methods}>
-      <form
-        onSubmit={methods.handleSubmit(onSubmit)}
-        className="rounded-2xl border-[#DFE4EA] border-[1px] p-4 space-y-4"
-      >
-        <h3 className="body-1 font-semibold">Leave Applications</h3>
+    <>
+      {showSpinner && <LoadingSpinner message="Submitting leave..." />}
 
-        {/* Leave Type */}
-        <div>
-          <p className="body-2 text-[#4A4A4A] mb-2">Leave Type *</p>
-          <select
-            {...methods.register("leaveType", { required: true })}
-            className="border-[#DFE4EA] border-[1px] p-2 w-full rounded-lg"
-          >
-            <option value="Annual">Annual Leave</option>
-            <option value="Medical">Medical Leave</option>
-            <option value="Unpaid">Unpaid Leave</option>
-          </select>
-        </div>
+      <div className="lg:p-4">
+      <FormProvider {...methods}>
+        <form
+          onSubmit={methods.handleSubmit(onSubmit)}
+          className="rounded-2xl border p-4 border-[#DFE4EA] space-y-4 lg:w-[calc(100%-280px)] lg:translate-x-70"
+        >
+          <h1 className="hidden lg:block heading-custom-1">My Leave</h1>
+          <h3 className="body-1 font-semibold">Apply for Leave</h3>
 
-        {/* Date Range */}
-        <DatePicker
-          selectsRange
-          startDate={startDate}
-          endDate={endDate}
-          onChange={(dates) => {
-            const [start, end] = dates;
-            setStartDate(start);
-            setEndDate(end);
-            methods.setValue("startDate", start);
-            methods.setValue("endDate", end);
+          {/* Leave Type - Custom Dropdown */}
+          <div>
+            <p className="body-2 mb-2">Leave Type *</p>
+            <CustomSelect
+              value={leaveType}
+              onChange={(v) => methods.setValue("leaveType", v)}
+              options={leaveOptions}
+              placeholder="Select leave type..."
+            />
+            <input type="hidden" {...methods.register("leaveType", { required: true })} />
+          </div>
 
-            if (leaveType !== "Unpaid" && leaveType !== "Medical" && start && end) {
-              const selectedRange = getDatesBetween(start, end);
-              const hasOverlap = selectedRange.some((d) =>
-                disabledDates.some(
-                  (blocked) => d.toDateString() === new Date(blocked).toDateString()
-                )
-              );
-              setIsUnavailable(hasOverlap);
-            } else {
-              setIsUnavailable(false);
-            }
-          }}
-          minDate={new Date()}
-          excludeDates={
-            leaveType === "Unpaid" || leaveType === "Medical" ? [] : disabledDates
-          }
-          placeholderText="Select date range"
-          className="border-[#DFE4EA] border-[1px] p-2 rounded-lg w-full"
-        />
+          {/* Date Range */}
+          <div>
+            <p className="body-2 mb-2">Date Range *</p>
+            <DatePicker
+              selectsRange
+              startDate={startDate}
+              endDate={endDate}
+              onChange={handleDateChange}
+              minDate={new Date()}
+              excludeDates={leaveType === "Annual" ? disabledDates : []}
+              className="border border-[#DFE4EA] p-2 rounded-lg w-full"
+              placeholderText="Select date range"
+            />
 
-        {/* Feedback */}
-        {startDate && endDate && (
-          <>
-            {isUnavailable ? (
-              <p className="mt-1 text-sm text-red-500">
-                Some of your selected dates are already booked.
-              </p>
-            ) : notEnoughBalance ? (
-              <p className="mt-1 text-sm text-red-500">
-                You don't have enough {leaveType} leave balance.
-              </p>
-            ) : (
-              <p className="mt-1 text-sm text-green-600">
-                All selected dates are available!
+            {startDate && endDate && (
+              <p
+                className={`mt-1 text-sm ${
+                  isUnavailable ? "text-red-500" : "text-green-600"
+                }`}
+              >
+                {isUnavailable
+                  ? "Some selected dates are already booked."
+                  : "Selected dates are available!"}
               </p>
             )}
-          </>
-        )}
+          </div>
 
-        {/* Documents */}
-  
-<div>
-  <p className="body-2 text-[#4A4A4A] mb-2">Documents (optional)</p>
+          {/* Documents */}
+          <div>
+                        <p className="body-2 text-[#4A4A4A] mb-2">Documents (optional)</p>
+                        <div className="w-full border-dashed border-blue-300 border-[2px] rounded-lg py-6 flex flex-col items-center space-y-4">
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="28"
+                            height="28"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="lucide lucide-cloud-upload-icon"
+                          >
+                            <path d="M12 13v8" />
+                            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                            <path d="m8 17 4-4 4 4" />
+                          </svg>
+                          <h2 className="body-1">Select File(s)</h2>
+          
+                          <div className="w-[90%] space-y-3 lg:flex lg:flex-col lg:items-center lg:justify-center">
+                            <FileInput
+                              name="documents"
+                              label="Uploaded files"
+                              multiple
+                              value={selectedFiles}
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []);
+                                methods.setValue("documents", files);
+                                setSelectedFiles(files);
+                              }}
+                            />
+                            {selectedFiles?.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedFiles([]);
+                                  methods.setValue("documents", []);
+                                  const fileInput = document.getElementById("documents");
+                                  if (fileInput) fileInput.value = "";
+                                }}
+                                className="bg-[#EDCEAF] text-sm px-3 py-1 rounded-lg lg:self-center lg:mr-2 cursor-pointer hover:bg-[#e0b98d] transition-all"
+                              >
+                                Clear Files
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+          
 
-  <div className="w-full border-dashed border-blue-300 border-[2px] rounded-lg py-6 flex flex-col items-center space-y-4">
-    {/* ... SVG and heading ... */}
-
-    <div className="w-[90%] space-y-3">
-      <FileInput
-        name="documents"
-        label="Uploaded files"
-        multiple
-        value={selectedFiles}
-        onChange={(e) => {
-          const files = Array.from(e.target.files || []);
-          methods.setValue("documents", files);
-          setSelectedFiles(files);
-        }}
-      />
-
-      {/* Clear button */}
-      {selectedFiles?.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            setSelectedFiles([]);
-            methods.setValue("documents", []);
-            // ✅ Clear the actual file input
-            const fileInput = document.getElementById('documents');
-            if (fileInput) fileInput.value = '';
-          }}
-          className="bg-[#EDCEAF] text-sm px-3 py-1 rounded-lg"
-        >
-          Clear Files
-        </button>
-      )}
-    </div>
-  </div>
-</div>
-
-        {/* Submit */}
-        <button
-          type="submit"
-          disabled={leaveMutation.isPending || isUnavailable || notEnoughBalance}
-          className={`pink-button body-2 w-[114px] self-start ${
-            isUnavailable || notEnoughBalance ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-        >
-          {leaveMutation.isPending ? "Submitting..." : "Submit"}
-        </button>
-      </form>
-    </FormProvider>
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isUnavailable || showSpinner}
+            className={`pink-button w-[114px] ${
+              isUnavailable || showSpinner ? "opacity-50" : ""
+            } hover:bg-[#e0b98d] transition-all`}
+          >
+            {showSpinner ? "Submitting..." : "Submit"}
+          </button>
+        </form>
+      </FormProvider>
+      </div>
+    </>
   );
 }
-
-export default EmpLeaves;

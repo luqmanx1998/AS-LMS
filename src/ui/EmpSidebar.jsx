@@ -1,12 +1,26 @@
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router";
 import supabase from "../functions/supabase";
 import { useNavigate } from "react-router";
 
-
-function EmpSidebar() {
+function EmpSidebar({ setEmpSidebarOpen, menuBtnRef, variant="mobile" }) {
   const location = useLocation();
-
   const navigate = useNavigate();
+  const sidebarRef = useRef(null);
+
+  // ✅ Close sidebar when clicking outside (ignores burger button)
+  useEffect(() => {
+    if (variant !== "mobile") return;
+
+    const handleClickOutside = (e) => {
+      if (sidebarRef.current?.contains(e.target)) return;
+      if (menuBtnRef?.current?.contains(e.target)) return;
+      setEmpSidebarOpen(false);
+    };
+
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [setEmpSidebarOpen, menuBtnRef, variant]);
 
   async function handleSignOut() {
     const { error } = await supabase.auth.signOut();
@@ -22,8 +36,19 @@ function EmpSidebar() {
       location.pathname === path ? "bg-[#EDCEAF]" : "hover:bg-[#EDCEAF]"
     }`;
 
+  const getSidebarClasses = () => {
+    if (variant === "mobile") {
+      return "shadow-lg fixed top-0 left-0 h-full w-[50%] z-[105] bg-[#F6F6F6] px-2 body-2 space-y-4 animate-slide-in";
+    } else {
+      return "hidden md:block w-70 h-screen bg-[#F6F6F6] px-4 body-2 space-y-4 fixed left-0 top-0 z-[100] border-r border-gray-200";
+    }
+  };
+
   return (
-    <div className="shadow-lg fixed top-0 left-0 h-full w-[50%] z-[105] bg-[#F6F6F6] px-2 body-2 space-y-4">
+    <div
+      ref={variant === "mobile" ? sidebarRef : null}
+      className={getSidebarClasses()}
+    >
       <p className="mt-10">Menu</p>
 
       <Link to="/employee" className={linkClasses("/employee")}>
@@ -47,10 +72,7 @@ function EmpSidebar() {
         <span>Dashboard</span>
       </Link>
 
-      <Link
-        to="/employee/empleaves"
-        className={linkClasses("/employee/empleaves")}
-      >
+      <Link to="/employee/empleaves" className={linkClasses("/employee/empleaves")}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="24"
@@ -95,8 +117,7 @@ function EmpSidebar() {
         <span>Leave History</span>
       </Link>
 
-      <div className={linkClasses("#")}
-      onClick={handleSignOut}>
+      <div onClick={handleSignOut} className={linkClasses("#")}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="24"

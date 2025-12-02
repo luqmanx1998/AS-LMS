@@ -1,27 +1,44 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createEmployee } from "../functions/createEmployee";
+import { useNotification } from "../context/NotificationContext";
 
-function CreateAccModal({ setCreateAccModalIsOpen }) {
+function CreateAccModal({ setCreateAccModalIsOpen, setShowSpinner }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
-  const [department, setDepartment] = useState("drivers");
+  const [department, setDepartment] = useState("night");
   const [role, setRole] = useState("employee");
 
   const queryClient = useQueryClient();
+  const { setPopup } = useNotification();
 
   const createEmployeeMutation = useMutation({
     mutationFn: createEmployee,
+    onMutate: () => {
+      setShowSpinner(true);
+    },
     onSuccess: () => {
-      // ✅ Invalidate and refetch employee list
       queryClient.invalidateQueries(["employees"]);
-      alert("Account created successfully!");
+      setShowSpinner(false);
+      
       setCreateAccModalIsOpen(false);
+      setTimeout(() => {
+        setPopup({
+          message: "Account created successfully!",
+          type: "success",
+          onClose: () => setPopup(null),
+        });
+      }, 100);
     },
     onError: (err) => {
       console.error("Account creation failed:", err.message);
-      alert(`Error: ${err.message}`);
+      setShowSpinner(false);
+      setPopup({
+        message: `Error: ${err.message}`,
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
@@ -114,9 +131,11 @@ function CreateAccModal({ setCreateAccModalIsOpen }) {
               onChange={(e) => setDepartment(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#EDCEAF]"
             >
+              <option value="night">Night</option>
+              <option value="day">Day</option>
               <option value="drivers">Drivers</option>
-              <option value="cooks">Cooks</option>
-              <option value="management">Management</option>
+              <option value="office">Office</option>
+              <option value="sales">Sales</option>
             </select>
           </div>
 

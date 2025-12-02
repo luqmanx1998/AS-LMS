@@ -64,8 +64,9 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-white">
-      <div className="w-full max-w-sm bg-white shadow-2xl rounded-2xl p-8">
-        <h1 className="text-2xl font-semibold text-center mb-6">Login</h1>
+      <div className="w-full max-w-sm bg-white shadow-2xl rounded-2xl p-8 flex flex-col">
+        <img className="w-35 self-center" src="\LOGO-new.png" alt="Company logo" />
+        <h1 className="text-2xl font-semibold text-center mb-6 -mt-9">Login</h1>
 
         {error && (
           <p className="text-red-500 text-sm text-center mb-4">{error}</p>

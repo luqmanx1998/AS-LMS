@@ -1,12 +1,14 @@
-import EmpSidebar from "../ui/EmpSidebar";
 import { getCurrentEmployee } from "../functions/getCurrentEmployee";
 import { getLeavesByEmployee } from "../functions/getLeaveData";
 import { useQuery } from "@tanstack/react-query";
 import EmpResetPasswordModal from "../ui/EmpResetPasswordModal";
 import { useState } from "react";
+import Portal from "../ui/Portal";
+import LoadingSpinner from "../ui/LoadingSpinner";
 
 function EmpDashboard() {
   const [openResetModal, setOpenResetModal] = useState(false);
+  const [showSpinner, setShowSpinner] = useState(false);
 
   // ✅ Fetch current employee
   const {
@@ -31,8 +33,22 @@ function EmpDashboard() {
     staleTime: 2 * 60 * 1000,
   });
 
-  if (isEmpLoading || isLeavesLoading) return <p>Loading dashboard...</p>;
-  if (!employee) return <p>Employee not found.</p>;
+  // Show loading spinner while data is loading
+  if (isEmpLoading || isLeavesLoading) {
+    return (
+      <div className="lg:p-4">
+        <LoadingSpinner message="Loading your dashboard..." />
+      </div>
+    );
+  }
+
+  if (isEmpError || !employee) {
+    return (
+      <div className="lg:p-4">
+        <p className="text-center text-red-500 py-8">Error loading employee data. Please try refreshing the page.</p>
+      </div>
+    );
+  }
 
   const totalLeaves = employee.total_leaves || {
     annualLeave: { remaining: 0, used: 0 },
@@ -42,47 +58,58 @@ function EmpDashboard() {
 
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <h2 className="subheading-custom-1">
-            Good morning, {employee.full_name}
-          </h2>
-          <button
-            className="pink-button mt-2 body-2"
-            onClick={() => setOpenResetModal(true)}
-          >
-            Reset Password
-          </button>
-        </div>
+      {/* Global Loading Spinner */}
+      {showSpinner && <LoadingSpinner message="Processing..." />}
+      
+      <h1 className="hidden lg:block heading-custom-1 lg:w-[calc(100%-280px)] lg:translate-x-70 lg:p-4">{employee.full_name}'s Dashboard</h1>
+      <div className="lg:w-[calc(100%-280px)] lg:translate-x-70 space-y-4 lg:p-4 lg:flex lg:gap-4">
+        <div className="lg:w-[75%] lg:space-y-4">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="subheading-custom-1">
+              Good morning, {employee.full_name}
+            </h2>
+            <button
+              className="pink-button mt-2 body-2 hover:bg-[#e0b98d] transition-all"
+              onClick={() => setOpenResetModal(true)}
+            >
+              Reset Password
+            </button>
+          </div>
 
-        {openResetModal && (
-          <EmpResetPasswordModal onClose={() => setOpenResetModal(false)} />
-        )}
+          {openResetModal && (
+            <Portal>
+              <EmpResetPasswordModal 
+                onClose={() => setOpenResetModal(false)} 
+                setShowSpinner={setShowSpinner}
+              />
+            </Portal>
+          )}
 
-        {/* 🧩 Dynamic leave cards */}
-        {Object.entries(totalLeaves).map(([type, stats]) => (
-          <div
-            key={type}
-            className="rounded-2xl border-[#DFE4EA] border-[1px] p-4"
-          >
-            <h3 className="body-1 mb-4 capitalize">
-              {type.replace(/([A-Z])/g, " $1")}
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              <div className="bg-[#D4FDE5] rounded-lg p-3 space-y-2">
-                <p className="body-2">Remaining</p>
-                <span className="body-1 font-semibold">{stats.remaining}</span>
-              </div>
-              <div className="bg-[#EAF1FF] rounded-lg p-3 space-y-2">
-                <p className="body-2">Used</p>
-                <span className="body-1 font-semibold">{stats.used}</span>
+          {/* 🧩 Dynamic leave cards */}
+          {Object.entries(totalLeaves).map(([type, stats]) => (
+            <div
+              key={type}
+              className="rounded-2xl border-[#DFE4EA] border-[1px] p-4"
+            >
+              <h3 className="body-1 mb-4 capitalize">
+                {type.replace(/([A-Z])/g, " $1")}
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-[#D4FDE5] rounded-lg p-3 space-y-2">
+                  <p className="body-2">Remaining</p>
+                  <span className="body-1 font-semibold">{stats.remaining}</span>
+                </div>
+                <div className="bg-[#EAF1FF] rounded-lg p-3 space-y-2">
+                  <p className="body-2">Used</p>
+                  <span className="body-1 font-semibold">{stats.used}</span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
 
         {/* 🧾 Latest Application */}
-        <div className="rounded-2xl border-[#DFE4EA] border-[1px] p-4 space-y-4">
+        <div className="rounded-2xl border-[#DFE4EA] border-[1px] p-4 space-y-4 lg:w-[25%]">
           <h3 className="subheading-custom-2">Latest Application</h3>
 
           {latestLeave ? (
@@ -127,7 +154,7 @@ function EmpDashboard() {
             </div>
           ) : (
             <p className="body-2 text-[#4A4A4A]">
-              You haven’t submitted any leave applications yet.
+              You haven't submitted any leave applications yet.
             </p>
           )}
         </div>

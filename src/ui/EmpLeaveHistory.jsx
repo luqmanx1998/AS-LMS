@@ -1,8 +1,39 @@
-import { useQuery } from "@tanstack/react-query";
-import { getLeaveData } from "../functions/getLeaveData";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getLeaveData, cancelLeave } from "../functions/getLeaveData";
 import { getCurrentEmployee } from "../functions/getCurrentEmployee";
+import Pagination from "../ui/Pagination";
+import LoadingSpinner from "./LoadingSpinner";
+import { useNotification } from "../context/NotificationContext";
 
 function EmpLeaveHistory() {
+  const queryClient = useQueryClient();
+  const { setPopup } = useNotification();
+
+  const cancelMutation = useMutation({
+    mutationFn: (leaveId) => cancelLeave(leaveId),
+    onSuccess: () => {
+      queryClient.invalidateQueries(["leaves"]);
+      setPopup({
+        message: "Leave cancelled successfully.",
+        type: "success",
+        onClose: () => setPopup(null),
+      });
+    },
+    onError: () => {
+      setPopup({
+        message: "Failed to cancel leave.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+    },
+  });
+
+  const handleCancel = (leaveId) => {
+    if (!window.confirm("Are you sure you want to cancel this leave?")) return;
+    cancelMutation.mutate(leaveId);
+  };
+
   // ✅ 1. Get current employee
   const {
     data: employee,
@@ -14,7 +45,7 @@ function EmpLeaveHistory() {
     staleTime: 10 * 60 * 1000,
   });
 
-  // ✅ 2. Get all leaves - with enhanced error handling
+  // ✅ 2. Get all leaves
   const {
     data: leavesResponse,
     isLoading: isLeavesLoading,
@@ -23,104 +54,70 @@ function EmpLeaveHistory() {
     queryKey: ["leaves"],
     queryFn: getLeaveData,
     staleTime: 5 * 60 * 1000,
-    retry: 2, // Add retries for network issues
+    retry: 2,
   });
 
-  // ✅ ULTRA DEFENSIVE: Handle absolutely any response format
+  // ✅ Pagination
+  const [page, setPage] = useState(1);
+  const limit = 8;
+
+  // ✅ 3. Normalize the response format
   const getSafeLeavesArray = (response) => {
     try {
-      console.log("🔍 Raw leavesResponse:", response);
-      console.log("🔍 Type of leavesResponse:", typeof response);
-      
-      // If response is falsy (null, undefined, false, 0, "", etc.)
-      if (!response) {
-        console.log("🔍 Response is falsy, returning empty array");
-        return [];
+      if (!response) return [];
+      if (Array.isArray(response)) return response;
+      if (response && typeof response === "object") {
+        if (Array.isArray(response.leaves)) return response.leaves;
+        if (Array.isArray(response.data)) return response.data;
+        if (Array.isArray(response.result)) return response.result;
       }
-      
-      // If it's already an array, return it
-      if (Array.isArray(response)) {
-        console.log("🔍 Response is array, length:", response.length);
-        return response;
-      }
-      
-      // If it's an object, check for common properties
-      if (response && typeof response === 'object') {
-        if (Array.isArray(response.leaves)) {
-          console.log("🔍 Response has leaves array, length:", response.leaves.length);
-          return response.leaves;
-        }
-        if (Array.isArray(response.data)) {
-          console.log("🔍 Response has data array, length:", response.data.length);
-          return response.data;
-        }
-        if (Array.isArray(response.result)) {
-          console.log("🔍 Response has result array, length:", response.result.length);
-          return response.result;
-        }
-        
-        // Log the object structure to help debug
-        console.log("🔍 Object keys:", Object.keys(response));
-        console.log("🔍 Full object:", response);
-      }
-      
-      // If we get here, it's an unexpected format
-      console.warn("⚠️ Unexpected leaves response format, returning empty array. Response:", response);
       return [];
-    } catch (error) {
-      console.error("💥 Error processing leaves response:", error);
+    } catch {
       return [];
     }
   };
 
   const leaves = getSafeLeavesArray(leavesResponse);
 
-  // ✅ SUPER SAFE filtering with multiple checks
-  const getEmployeeLeaves = (leavesArray, emp) => {
-    try {
-      // Multiple safety checks
-      if (!emp || !emp.id) {
-        console.log("🔍 No employee or employee id");
-        return [];
-      }
-      
-      if (!Array.isArray(leavesArray)) {
-        console.log("🔍 leavesArray is not an array:", typeof leavesArray);
-        return [];
-      }
-      
-      console.log("🔍 Filtering leaves for employee:", emp.id);
-      console.log("🔍 Total leaves to filter:", leavesArray.length);
-      
-      const filtered = leavesArray.filter(leave => {
-        // Multiple checks for each leave object
-        if (!leave) return false;
-        if (typeof leave !== 'object') return false;
-        if (!leave.employee_id) return false;
-        
-        return leave.employee_id === emp.id;
-      });
-      
-      console.log("🔍 Filtered leaves count:", filtered.length);
-      return filtered;
-    } catch (filterError) {
-      console.error("💥 Error filtering leaves:", filterError);
-      return [];
-    }
+  // ✅ 4. Filter for the current employee’s leaves
+  const employeeLeaves = useMemo(() => {
+    if (!employee?.id || !Array.isArray(leaves)) return [];
+    return leaves.filter((leave) => leave.employee_id === employee.id);
+  }, [leaves, employee]);
+
+  // ✅ 5. Sorting + Pagination
+  const sortedLeaves = [...employeeLeaves].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+  );
+
+  const totalPages = Math.ceil(sortedLeaves.length / limit);
+  const paginatedLeaves = sortedLeaves.slice(
+    (page - 1) * limit,
+    page * limit
+  );
+
+  // ✅ 6. Format date range helper
+  const formatDateRange = (start, end) => {
+    if (!start || !end) return "Invalid date range";
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime()))
+      return "Invalid date";
+    return `${startDate.toLocaleDateString("en-SG", {
+      month: "short",
+      day: "numeric",
+    })} - ${endDate.toLocaleDateString("en-SG", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })}`;
   };
 
-  const employeeLeaves = getEmployeeLeaves(leaves, employee);
-
-  // ✅ 4. Handle loading/error states
+  // ✅ 7. Handle loading/error states
   if (isEmployeeLoading || isLeavesLoading) {
-    return (
-      <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
-        <h3 className="subheading-custom-2 mb-4">Leave History</h3>
-        <p>Loading leave history...</p>
-      </div>
-    );
+    return <LoadingSpinner message="Loading leave history..." />;
   }
-  
+
   if (isEmployeeError || isLeavesError) {
     return (
       <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
@@ -130,74 +127,43 @@ function EmpLeaveHistory() {
     );
   }
 
-  // ✅ 5. Helper: format dates nicely with error handling
-  const formatDateRange = (start, end) => {
-    try {
-      if (!start || !end) return "Invalid date range";
-      
-      const startDate = new Date(start);
-      const endDate = new Date(end);
-      
-      // Check if dates are valid
-      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        return "Invalid date";
-      }
-      
-      return `${startDate.toLocaleDateString("en-SG", {
-        month: "short",
-        day: "numeric",
-      })} - ${endDate.toLocaleDateString("en-SG", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })}`;
-    } catch (error) {
-      console.error("Date formatting error:", error);
-      return "Date error";
-    }
-  };
-
-  // ✅ Final safety check before rendering
-  if (!Array.isArray(employeeLeaves)) {
-    console.error("💥 employeeLeaves is not an array after all processing:", employeeLeaves);
-    return (
-      <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
-        <h3 className="subheading-custom-2 mb-4">Leave History</h3>
-        <p className="text-red-500">Error: Unable to load leave data.</p>
-      </div>
-    );
-  }
-
+  // ✅ 8. Render
   return (
-    <div>
-      <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
+    <div className="lg:p-4 lg:flex lg:flex-col lg:items-center lg:w-[calc(100%-280px)]">
+      <h1 className="hidden lg:block heading-custom-1 lg:w-[calc(100%-280px)] lg:translate-x-70 lg:mb-4">
+        My Leave History
+      </h1>
+      <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4 lg:w-[calc(100%-280px)] lg:translate-x-70">
         <h3 className="subheading-custom-2 mb-4">Leave History</h3>
 
         {/* Table Header */}
         <div className="border-[#DFE4EA] border-[1px] rounded-lg">
           <div className="bg-[#EBF1FF] px-4 py-2 overflow-scroll">
-            <div className="grid grid-cols-4 w-[490px] justify-items-center items-center">
+            <div className="grid grid-cols-5 w-[550px] lg:w-200 justify-items-center items-center">
               <span className="body-2 font-medium">Leave Type</span>
               <span className="body-2 font-medium">Dates</span>
               <span className="body-2 font-medium">Status</span>
               <span className="body-2 font-medium">Remarks</span>
+              <span className="body-2 font-medium">Actions</span>
             </div>
           </div>
 
           {/* Table Rows */}
           <div className="px-4 py-2 overflow-scroll space-y-2">
-            {employeeLeaves.length === 0 ? (
+            {paginatedLeaves.length === 0 ? (
               <p className="text-center text-sm text-gray-500 py-2">
                 No leave applications yet.
               </p>
             ) : (
-              employeeLeaves.map((leave, index) => (
+              paginatedLeaves.map((leave, index) => (
                 <div
                   key={leave?.id || `leave-${index}`}
-                  className="grid grid-cols-4 w-[490px] justify-items-center items-center gap-3 border-b border-[#F0F0F0] pb-2"
+                  className="grid grid-cols-5 w-[550px] lg:w-200 justify-items-center items-center gap-3 border-b border-[#F0F0F0] pb-2"
                 >
-                  <span className="body-2">{leave?.leave_type || "Unknown"}</span>
                   <span className="body-2">
+                    {leave?.leave_type || "Unknown"}
+                  </span>
+                  <span className="body-2 text-center">
                     {formatDateRange(leave?.start_date, leave?.end_date)}
                   </span>
                   <span
@@ -206,19 +172,39 @@ function EmpLeaveHistory() {
                         ? "bg-[#03BC66]"
                         : leave?.status === "Pending"
                         ? "bg-[#F3C252]"
+                        : leave?.status === "Cancelled"
+                        ? "bg-gray-400"
                         : "bg-[#E57373]"
                     }`}
                   >
                     {leave?.status || "Unknown"}
                   </span>
-                  <span className="body-2">
+                  <span className="body-2 text-center">
                     {leave?.remarks || "—"}
                   </span>
+
+                  {/* ✅ You can change/move/style this later – logic only */}
+                  <button
+                    onClick={() => handleCancel(leave.id)}
+                    className="px-2 py-1 rounded-2xl cursor-pointer bg-red-500 text-xs hover:bg-red-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={leave?.status === "Approved" || leave?.status === "Rejected" || leave?.status === "Cancelled"}
+                  >
+                    Cancel
+                  </button>
                 </div>
               ))
             )}
           </div>
         </div>
+
+        {/* Pagination (only visible if multiple pages) */}
+        {totalPages > 1 && (
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
+        )}
       </div>
     </div>
   );

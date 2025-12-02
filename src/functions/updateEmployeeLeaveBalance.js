@@ -19,29 +19,32 @@ export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDat
     // 2️⃣ Clone the JSON
     const totalLeaves = { ...employee.total_leaves };
 
-    // 3️⃣ Calculate the number of days between start and end
+    // 3️⃣ Calculate number of days taken
     const start = new Date(startDate);
     const end = new Date(endDate);
     const daysTaken = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
 
-    // 4️⃣ Normalize the key based on leaveType
-    const leaveKey =
-      leaveType === "Annual"
-        ? "annualLeave"
-        : leaveType === "Medical"
-        ? "medicalLeave"
-        : null;
+    // 4️⃣ Normalize leave types → keys inside total_leaves
+    const leaveTypeMap = {
+      Annual: "annualLeave",
+      Medical: "medicalLeave",
+      Compassionate: "compassionateLeave",
+      Hospitalisation: "hospitalisationLeave",
+    };
+
+    const leaveKey = leaveTypeMap[leaveType];
 
     if (!leaveKey || !totalLeaves[leaveKey]) {
-      console.warn("No matching leave type in total_leaves:", leaveType);
+      console.warn("⚠️ No matching leave type in total_leaves:", leaveType);
       return;
     }
 
-    // 5️⃣ Update remaining and used counts safely
+    // 5️⃣ Update remaining and used safely
     totalLeaves[leaveKey].remaining = Math.max(
       0,
       (totalLeaves[leaveKey].remaining || 0) - daysTaken
     );
+
     totalLeaves[leaveKey].used =
       (totalLeaves[leaveKey].used || 0) + daysTaken;
 
@@ -53,7 +56,9 @@ export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDat
 
     if (updateError) throw updateError;
 
-    console.log(`✅ Updated leave balance for ${employeeId}: -${daysTaken} ${leaveType}`);
+    console.log(
+      `✅ Updated leave balance for ${employeeId}: -${daysTaken} days (${leaveType})`
+    );
   } catch (err) {
     console.error("❌ Error updating leave balance:", err.message);
   }
