@@ -102,68 +102,61 @@ function LeaveApplications() {
           : "Are you sure you want to clear leaves older than 7 days?",
       type: "confirm",
       onConfirm: async () => {
-        // ✔ Range delete
-        if (type === "range") {
-          if (!rangeStart || !rangeEnd) {
-            setPopup({
-              message: "Please select both start and end dates.",
-              type: "error",
-              onClose: () => setPopup(null),
-            });
-            return;
-          }
+  if (type === "range") {
+    if (!rangeStart || !rangeEnd) {
+      setPopup({
+        message: "Please select both start and end dates.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+      return;
+    }
 
-          try {
-            setShowSpinner(true);
-            await clearLeavesBetween(
-              rangeStart + "T00:00:00",
-              rangeEnd + "T23:59:59"
-            );
+    // ✅ Date order validation
+    if (new Date(rangeStart) > new Date(rangeEnd)) {
+      setPopup({
+        message: "Start date cannot be after end date.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+      return;
+    }
 
-            setPopup({
-              message: `Leaves from ${rangeStart} to ${rangeEnd} deleted.`,
-              type: "success",
-              onClose: () => setPopup(null),
-            });
-            queryClient.invalidateQueries(["leaves"]);
-          } catch (err) {
-            setPopup({
-              message: err.message || "Failed to delete selected range.",
-              type: "error",
-              onClose: () => setPopup(null),
-            });
-          } finally {
-            setShowSpinner(false);
-          }
+    try {
+      setShowSpinner(true);
 
-          return;
-        }
+      // ✅ Timezone-safe boundaries
+      const startUTC = new Date(rangeStart);
+      startUTC.setHours(0, 0, 0, 0);
 
-        // ✔ Delete older than 7 days (UI only)
-        if (type === "7days") {
-          const sevenDaysAgo = new Date();
-          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const endUTC = new Date(rangeEnd);
+      endUTC.setHours(23, 59, 59, 999);
 
-          setUiLeaves((prev) =>
-            prev.filter((leave) => new Date(leave.created_at) >= sevenDaysAgo)
-          );
+      await clearLeavesBetween(
+        startUTC.toISOString(),
+        endUTC.toISOString()
+      );
 
-          setPopup({
-            message: "Leaves older than 7 days have been hidden.",
-            type: "success",
-            onClose: () => setPopup(null),
-          });
+      setPopup({
+        message: `Leaves from ${rangeStart} to ${rangeEnd} deleted.`,
+        type: "success",
+        onClose: () => setPopup(null),
+      });
 
-          return;
-        }
+      queryClient.invalidateQueries(["leaves"]);
+    } catch (err) {
+      setPopup({
+        message: err.message || "Failed to delete selected range.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+    } finally {
+      setShowSpinner(false);
+    }
 
-        // ✔ Delete ALL (backend)
-        if (type === "all") {
-          clearMutation.mutate("all");
-        }
-
-        setPopup(null);
-      },
+    return;
+  }
+},
       onCancel: () => setPopup(null),
       onClose: () => setPopup(null),
     });

@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
+import supabase from "./supabase";
 
 export async function downloadAttachments(attachments) {
   if (!attachments?.length) return;
@@ -8,11 +9,19 @@ export async function downloadAttachments(attachments) {
 
   for (let file of attachments) {
     try {
-      const res = await fetch(file.url);
+      // 🔑 Create signed URL
+      const { data, error } = await supabase.storage
+        .from("attachments")
+        .createSignedUrl(file.path, 60 * 5); // 5 minutes
+
+      if (error) throw error;
+
+      const res = await fetch(data.signedUrl);
       const blob = await res.blob();
       zip.file(file.name, blob);
+
     } catch (err) {
-      console.error("Failed to fetch file:", file.name, err);
+      console.error("Failed to download:", file.name, err);
     }
   }
 
