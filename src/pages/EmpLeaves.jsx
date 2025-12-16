@@ -10,8 +10,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNotification } from "../context/NotificationContext";
 import LoadingSpinner from "../ui/LoadingSpinner";
 
-
-// 📌 Custom Dropdown (same as AdminLeave)
+// 📌 Custom Dropdown
 function CustomSelect({ value, onChange, options, placeholder = "Select..." }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -78,8 +77,12 @@ function CustomSelect({ value, onChange, options, placeholder = "Select..." }) {
 function getDatesBetween(start, end) {
   if (!start || !end) return [];
   const dates = [];
-  const current = new Date(Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()));
-  const stop = new Date(Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()));
+  const current = new Date(
+    Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+  );
+  const stop = new Date(
+    Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+  );
   while (current <= stop) {
     dates.push(new Date(current));
     current.setUTCDate(current.getUTCDate() + 1);
@@ -100,9 +103,10 @@ export default function EmpLeaves() {
 
   const leaveType = methods.watch("leaveType");
 
-  // ✔ New leave types
+  // ✔ Updated leave types
   const leaveOptions = [
     { value: "Annual", label: "Annual Leave" },
+    { value: "Annual Appeal", label: "Annual Leave (Appeal)" }, // 👈 NEW
     { value: "Medical", label: "Medical Leave" },
     { value: "Compassionate", label: "Compassionate Leave" },
     { value: "Hospitalisation", label: "Hospitalisation Leave" },
@@ -127,12 +131,14 @@ export default function EmpLeaves() {
     ? leavesResponse
     : leavesResponse?.leaves || [];
 
-  // 3. Blocked dates only for ANNUAL
+  // 3. Blocked dates ONLY for Annual (NOT Appeal)
   const disabledDates =
     leaves
       .filter(
         (leave) =>
-          leave.leave_type === "Annual" && leave.status !== "Rejected"
+          leave.leave_type === "Annual" &&
+          leave.status !== "Rejected" &&
+          leave.employees?.department === employee?.department
       )
       .flatMap((leave) =>
         getDatesBetween(
@@ -147,7 +153,11 @@ export default function EmpLeaves() {
     onMutate: () => setShowSpinner(true),
     onSuccess: () => {
       setShowSpinner(false);
-      setPopup({ message: "Leave submitted!", type: "success", onClose: () => setPopup(null) });
+      setPopup({
+        message: "Leave submitted!",
+        type: "success",
+        onClose: () => setPopup(null),
+      });
       queryClient.invalidateQueries(["leaves"]);
       methods.reset();
       setStartDate(null);
@@ -156,7 +166,11 @@ export default function EmpLeaves() {
     },
     onError: () => {
       setShowSpinner(false);
-      setPopup({ message: "Failed to submit leave.", type: "error", onClose: () => setPopup(null) });
+      setPopup({
+        message: "Failed to submit leave.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
     },
   });
 
@@ -169,7 +183,7 @@ export default function EmpLeaves() {
     methods.setValue("startDate", start);
     methods.setValue("endDate", end);
 
-    // Only Annual leave checks available dates
+    // Only Annual blocks dates
     if (leaveType === "Annual" && start && end) {
       const range = getDatesBetween(start, end);
       const hasOverlap = range.some((d) =>
@@ -209,7 +223,8 @@ export default function EmpLeaves() {
       end_date: formatDate(endDate),
       attachments: uploadedUrls.length ? uploadedUrls : null,
       status: "Pending",
-      remarks: null,
+      remarks:
+        leaveType === "Annual Appeal" ? data.appealRemarks : null, // 👈 NEW
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     });
@@ -223,118 +238,115 @@ export default function EmpLeaves() {
       {showSpinner && <LoadingSpinner message="Submitting leave..." />}
 
       <div className="lg:p-4">
-      <FormProvider {...methods}>
-        <form
-          onSubmit={methods.handleSubmit(onSubmit)}
-          className="rounded-2xl border p-4 border-[#DFE4EA] space-y-4 lg:w-[calc(100%-280px)] lg:translate-x-70"
-        >
-          <h1 className="hidden lg:block heading-custom-1">My Leave</h1>
-          <h3 className="body-1 font-semibold">Apply for Leave</h3>
-
-          {/* Leave Type - Custom Dropdown */}
-          <div>
-            <p className="body-2 mb-2">Leave Type *</p>
-            <CustomSelect
-              value={leaveType}
-              onChange={(v) => methods.setValue("leaveType", v)}
-              options={leaveOptions}
-              placeholder="Select leave type..."
-            />
-            <input type="hidden" {...methods.register("leaveType", { required: true })} />
-          </div>
-
-          {/* Date Range */}
-          <div>
-            <p className="body-2 mb-2">Date Range *</p>
-            <DatePicker
-              selectsRange
-              startDate={startDate}
-              endDate={endDate}
-              onChange={handleDateChange}
-              minDate={new Date()}
-              excludeDates={leaveType === "Annual" ? disabledDates : []}
-              className="border border-[#DFE4EA] p-2 rounded-lg w-full"
-              placeholderText="Select date range"
-            />
-
-            {startDate && endDate && (
-              <p
-                className={`mt-1 text-sm ${
-                  isUnavailable ? "text-red-500" : "text-green-600"
-                }`}
-              >
-                {isUnavailable
-                  ? "Some selected dates are already booked."
-                  : "Selected dates are available!"}
-              </p>
-            )}
-          </div>
-
-          {/* Documents */}
-          <div>
-                        <p className="body-2 text-[#4A4A4A] mb-2">Documents (optional)</p>
-                        <div className="w-full border-dashed border-blue-300 border-[2px] rounded-lg py-6 flex flex-col items-center space-y-4">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="28"
-                            height="28"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            className="lucide lucide-cloud-upload-icon"
-                          >
-                            <path d="M12 13v8" />
-                            <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
-                            <path d="m8 17 4-4 4 4" />
-                          </svg>
-                          <h2 className="body-1">Select File(s)</h2>
-          
-                          <div className="w-[90%] space-y-3 lg:flex lg:flex-col lg:items-center lg:justify-center">
-                            <FileInput
-                              name="documents"
-                              label="Uploaded files"
-                              multiple
-                              value={selectedFiles}
-                              onChange={(e) => {
-                                const files = Array.from(e.target.files || []);
-                                methods.setValue("documents", files);
-                                setSelectedFiles(files);
-                              }}
-                            />
-                            {selectedFiles?.length > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedFiles([]);
-                                  methods.setValue("documents", []);
-                                  const fileInput = document.getElementById("documents");
-                                  if (fileInput) fileInput.value = "";
-                                }}
-                                className="bg-[#EDCEAF] text-sm px-3 py-1 rounded-lg lg:self-center lg:mr-2 cursor-pointer hover:bg-[#e0b98d] transition-all"
-                              >
-                                Clear Files
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-          
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={isUnavailable || showSpinner}
-            className={`pink-button w-[114px] ${
-              isUnavailable || showSpinner ? "opacity-50" : ""
-            } hover:bg-[#e0b98d] transition-all`}
+        <FormProvider {...methods}>
+          <form
+            onSubmit={methods.handleSubmit(onSubmit)}
+            className="rounded-2xl border p-4 border-[#DFE4EA] space-y-4 lg:w-[calc(100%-280px)] lg:translate-x-70"
           >
-            {showSpinner ? "Submitting..." : "Submit"}
-          </button>
-        </form>
-      </FormProvider>
+            <h1 className="hidden lg:block heading-custom-1">My Leave</h1>
+            <h3 className="body-1 font-semibold">Apply for Leave</h3>
+
+            {/* Leave Type */}
+            <div>
+              <p className="body-2 mb-2">Leave Type *</p>
+              <CustomSelect
+                value={leaveType}
+                onChange={(v) => methods.setValue("leaveType", v)}
+                options={leaveOptions}
+                placeholder="Select leave type..."
+              />
+              <input
+                type="hidden"
+                {...methods.register("leaveType", { required: true })}
+              />
+            </div>
+
+            {/* Appeal Reason */}
+            {leaveType === "Annual Appeal" && (
+              <div className="mt-3">
+                <p className="body-2 mb-1">Reason for Appeal *</p>
+                <textarea
+                  {...methods.register("appealRemarks", { required: true })}
+                  placeholder="Explain why you need an appeal for this annual leave request..."
+                  className="border border-[#DFE4EA] p-2 rounded-lg w-full h-24"
+                ></textarea>
+              </div>
+            )}
+
+            {/* Date Range */}
+            <div>
+              <p className="body-2 mb-2">Date Range *</p>
+              <DatePicker
+                selectsRange
+                startDate={startDate}
+                endDate={endDate}
+                onChange={handleDateChange}
+                minDate={new Date()}
+                excludeDates={leaveType === "Annual" ? disabledDates : []}
+                className="border border-[#DFE4EA] p-2 rounded-lg w-full"
+                placeholderText="Select date range"
+              />
+
+              {startDate && endDate && (
+                <p
+                  className={`mt-1 text-sm ${
+                    isUnavailable ? "text-red-500" : "text-green-600"
+                  }`}
+                >
+                  {isUnavailable
+                    ? "Some selected dates are already booked."
+                    : "Selected dates are available!"}
+                </p>
+              )}
+            </div>
+
+            {/* Documents */}
+            <div>
+              <p className="body-2 mb-2">Documents (optional)</p>
+              <div className="w-full border-dashed border-blue-300 border-[2px] rounded-lg py-6 flex flex-col items-center space-y-4">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="28"
+                  height="28"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M12 13v8" />
+                  <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
+                  <path d="m8 17 4-4 4 4" />
+                </svg>
+
+                <h2 className="body-1">Select File(s)</h2>
+
+                <div className="w-[90%]">
+                  <FileInput
+                    name="documents"
+                    multiple
+                    value={selectedFiles}
+                    onChange={(e) => {
+                      const files = Array.from(e.target.files || []);
+                      methods.setValue("documents", files);
+                      setSelectedFiles(files);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Submit */}
+            <button
+              type="submit"
+              disabled={isUnavailable || showSpinner}
+              className={`pink-button w-[114px] ${
+                isUnavailable || showSpinner ? "opacity-50" : ""
+              }`}
+            >
+              {showSpinner ? "Submitting..." : "Submit"}
+            </button>
+          </form>
+        </FormProvider>
       </div>
     </>
   );

@@ -4,7 +4,7 @@ import { getLeaveData } from "../functions/getLeaveData";
 import { formatDate, formatDateRange } from "../functions/dateFunctions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadAttachments } from "../functions/downloadAttachment";
-import { clearAllLeaves, clearLeavesOlderThan } from "../functions/clearLeaves";
+import { clearAllLeaves, clearLeavesOlderThan, clearLeavesBetween } from "../functions/clearLeaves";
 import Pagination from "../ui/Pagination";
 import { useNotification } from "../context/NotificationContext";
 import LoadingSpinner from "../ui/LoadingSpinner";
@@ -21,6 +21,10 @@ function LeaveApplications() {
   const [searchTerm, setSearchTerm] = useState("");
   const [showSpinner, setShowSpinner] = useState(false);
   const [uiLeaves, setUiLeaves] = useState([]);
+
+  // NEW STATE for date range deletion
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
 
   const limit = 10;
 
@@ -41,7 +45,7 @@ function LeaveApplications() {
         message:
           type === "all"
             ? "All leaves have been cleared successfully."
-            : "Leaves older than 7 days cleared successfully.",
+            : "Leaves cleared successfully.",
         type: "success",
         onClose: () => setPopup(null),
       });
@@ -63,8 +67,8 @@ function LeaveApplications() {
   const totalPages = Math.ceil(total / limit);
 
   useEffect(() => {
-  setUiLeaves(leaves);
-}, [leaves])
+    setUiLeaves(leaves);
+  }, [leaves]);
 
   const filteredLeaves = useMemo(() => {
     return uiLeaves.filter((leave) => {
@@ -87,36 +91,81 @@ function LeaveApplications() {
     setOpenReviewModal(true);
   };
 
+  // ⭐ UPDATED CLEAR HANDLER
   const handleConfirmClear = (type) => {
     setPopup({
       message:
         type === "all"
           ? "Are you sure you want to clear ALL leaves? This action cannot be undone."
-          : "Are you sure you want to clear leaves up to the last 7 days? This action cannot be undone.",
+          : type === "range"
+          ? `Delete leaves from ${rangeStart} to ${rangeEnd}?`
+          : "Are you sure you want to clear leaves older than 7 days?",
       type: "confirm",
-      onConfirm: () => {
-  if (type === "7days") {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      onConfirm: async () => {
+        // ✔ Range delete
+        if (type === "range") {
+          if (!rangeStart || !rangeEnd) {
+            setPopup({
+              message: "Please select both start and end dates.",
+              type: "error",
+              onClose: () => setPopup(null),
+            });
+            return;
+          }
 
-    setUiLeaves(prev =>
-      prev.filter(leave => new Date(leave.created_at) >= sevenDaysAgo)
-    );
+          try {
+            setShowSpinner(true);
+            await clearLeavesBetween(
+              rangeStart + "T00:00:00",
+              rangeEnd + "T23:59:59"
+            );
 
-    setPopup({
-      message: "Leaves older than 7 days have been hidden.",
-      type: "success",
+            setPopup({
+              message: `Leaves from ${rangeStart} to ${rangeEnd} deleted.`,
+              type: "success",
+              onClose: () => setPopup(null),
+            });
+            queryClient.invalidateQueries(["leaves"]);
+          } catch (err) {
+            setPopup({
+              message: err.message || "Failed to delete selected range.",
+              type: "error",
+              onClose: () => setPopup(null),
+            });
+          } finally {
+            setShowSpinner(false);
+          }
+
+          return;
+        }
+
+        // ✔ Delete older than 7 days (UI only)
+        if (type === "7days") {
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+          setUiLeaves((prev) =>
+            prev.filter((leave) => new Date(leave.created_at) >= sevenDaysAgo)
+          );
+
+          setPopup({
+            message: "Leaves older than 7 days have been hidden.",
+            type: "success",
+            onClose: () => setPopup(null),
+          });
+
+          return;
+        }
+
+        // ✔ Delete ALL (backend)
+        if (type === "all") {
+          clearMutation.mutate("all");
+        }
+
+        setPopup(null);
+      },
+      onCancel: () => setPopup(null),
       onClose: () => setPopup(null),
-    });
-
-  } else if (type === "all") {
-    clearMutation.mutate("all"); // only ALL still uses backend
-  }
-
-  setPopup(null);
-}, 
-   onCancel: () => setPopup(null),
-  onClose: () => setPopup(null),
     });
   };
 
@@ -125,65 +174,75 @@ function LeaveApplications() {
 
   return (
     <div className="lg:w-[calc(100%-280px)] lg:translate-x-[280px] lg:px-4 lg:py-4 lg:space-y-6">
-      {/* Global loading spinner - now in parent component */}
+
       {showSpinner && <LoadingSpinner message="Updating leave status..." />}
-      
+
       {openReviewModal && selectedLeave && (
         <ReviewLeavesModal
           setOpenReviewModal={setOpenReviewModal}
           leave={selectedLeave}
-          setShowSpinner={setShowSpinner} // Pass setter to modal
+          setShowSpinner={setShowSpinner}
         />
       )}
+
       <h1 className="hidden lg:block heading-custom-1">Leave Application</h1>
 
-      {/* ... rest of your LeaveApplications JSX remains the same ... */}
       <div className="rounded-2xl border-[#DFE4EA] border-[1px] px-4 py-4">
         <div className="flex justify-between items-center mb-2 flex-wrap gap-3">
           <h3 className="subheading-custom-2 mb-2">Leave Applications</h3>
 
           <div className="flex gap-2 items-center flex-wrap">
-            {/* 🔍 Search by employee */}
+
+            {/* Search */}
+            <div className="flex items-center gap-2 mr-8">
             <input
               type="text"
               placeholder="Search by employee name..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 w-[200px] focus:ring-2 focus:ring-[#E7AE40] outline-none placeholder-shown:text-sm"
+              className="border border-gray-300 rounded-lg px-3 py-1.5 w-[200px]"
             />
 
-            {/* 🧭 Filter by status */}
+            {/* Status filter */}
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-[#E7AE40] outline-none text-sm"
+              className="border border-gray-300 rounded-lg px-3 py-1.5"
             >
               <option value="All">All</option>
               <option value="Pending">Pending</option>
               <option value="Approved">Approved</option>
               <option value="Rejected">Rejected</option>
             </select>
+            </div>
 
-            {/* 🧹 Clear buttons */}
-            <button
-              onClick={() => handleConfirmClear("7days")}
-              disabled={clearing}
-              className="border border-[#DFE4EA] rounded-lg px-3 py-1 body-2 text-[#4A4A4A] hover:bg-[#F6F6F6] cursor-pointer"
-            >
-              Clear Older Than 7 Days
-            </button>
+            {/* ⭐ DELETE RANGE UI */}
+            <input
+              type="date"
+              value={rangeStart}
+              onChange={(e) => setRangeStart(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1"
+            />
+
+            <span>to</span>
+
+            <input
+              type="date"
+              value={rangeEnd}
+              onChange={(e) => setRangeEnd(e.target.value)}
+              className="border border-gray-300 rounded-lg px-2 py-1"
+            />
 
             <button
-              onClick={() => handleConfirmClear("all")}
-              disabled={clearing}
-              className="bg-[#E57373] text-white rounded-lg px-3 py-1 body-2 hover:bg-[#d95f5f] cursor-pointer"
+              onClick={() => handleConfirmClear("range")}
+              className="border border-[#DFE4EA] rounded-lg px-3 py-1 body-2 text-[#4A4A4A]"
             >
-              Delete All
+              Delete Range
             </button>
           </div>
         </div>
 
-        {/* 🗂️ Table */}
+        {/* TABLE */}
         <div className="border-[#DFE4EA] border-[1px] rounded-lg">
           <div className="bg-[#EBF1FF] px-4 py-2 overflow-scroll">
             <div className="grid grid-cols-8 min-w-[850px] justify-items-center items-center">
@@ -219,7 +278,7 @@ function LeaveApplications() {
                     {formatDateRange(leave.start_date, leave.end_date)}
                   </span>
                   <span
-                    className={`body-2 text-center ${
+                    className={`body-2 ${
                       leave.attachments?.length
                         ? "font-semibold underline cursor-pointer"
                         : ""
@@ -232,7 +291,7 @@ function LeaveApplications() {
                   </span>
 
                   <span
-                    className={`body-2 rounded-2xl text-white py-1 px-1.5 w-20 text-center ${
+                    className={`body-2 rounded-2xl text-white py-1 px-1.5 w-20 ${
                       leave.status.replace(/"/g, "") === "Approved"
                         ? "bg-[#03BC66]"
                         : leave.status.replace(/"/g, "") === "Rejected"
@@ -246,7 +305,7 @@ function LeaveApplications() {
                   </span>
 
                   <button
-                    className="py-1 px-2.5 bg-[#E7AE40] text-white body-2 rounded-lg cursor-pointer"
+                    className="py-1 px-2.5 bg-[#E7AE40] text-white body-2 rounded-lg"
                     onClick={() => handleReviewClick(leave)}
                   >
                     Review
@@ -257,12 +316,7 @@ function LeaveApplications() {
           </div>
         </div>
 
-        {/* 🔢 Pagination Controls */}
-        <Pagination
-          page={page}
-          totalPages={totalPages}
-          onPageChange={setPage}
-        />
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
     </div>
   );

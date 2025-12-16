@@ -40,18 +40,67 @@ export async function getLeaveData(page = null, limit = null) {
 }
 
 export async function upsertLeaveData(payload) {
-    const { data, error } = await supabase
-    .from('leaves')
+  // 1️⃣ Insert the new leave
+  const { data, error } = await supabase
+    .from("leaves")
     .upsert([payload])
-    .select()
+    .select(`
+      *,
+      employees(full_name, email)
+    `)
+    .single();
 
-    if(error) {
-        console.error("Upsert failed:", error.message);
-        throw new Error("Failed to upsert leave data.")
-    }
+  if (error) {
+    console.error("Upsert failed:", error.message);
+    throw new Error("Failed to submit leave request.");
+  }
 
-    return data;
+  // 2️⃣ Fetch all admins
+  const { data: admins, error: adminError } = await supabase
+    .from("employees")
+    .select("email, full_name")
+    .eq("role", "admin");
+
+  if (adminError) {
+    console.error("Failed to load admin emails:", adminError);
+  }
+
+  const adminEmails = admins?.map((a) => a.email).filter(Boolean);
+
+  if (!adminEmails || adminEmails.length === 0) {
+    console.error("No admin emails found.");
+    return data; // Still return success for the leave submission
+  }
+
+  // 3️⃣ Build email body
+  const emailBody = {
+    to: adminEmails,
+    employeeName: data.employees.full_name,
+    leaveType: data.leave_type,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    status: "Pending",
+    remarks: data.remarks || "",
+    adminNotification: true, // We can use this flag to change template later if needed
+  };
+
+  // 4️⃣ Call edge function
+  try {
+    const { data: emailData, error: emailErr } = await supabase.functions.invoke(
+      "send-email",
+      { body: emailBody }
+    );
+
+    if (emailErr) console.error("Admin email error:", emailErr);
+    else console.log("Admin notification sent:", emailData);
+
+  } catch (err) {
+    console.error("Edge function error:", err);
+  }
+
+  return data;
 }
+
 
 export async function updateLeaveData(payload) {
   console.log("🔄 updateLeaveData called with payload:", payload);

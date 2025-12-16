@@ -22,3 +22,14 @@ export async function clearLeavesOlderThan(days = 7) {
   if (error) throw new Error("Failed to clear old leaves: " + error.message);
   return true;
 }
+
+export async function clearLeavesBetween(startDate, endDate) {
+  const { error } = await supabase
+    .from("leaves")
+    .delete()
+    .gte("created_at", startDate)
+    .lte("created_at", endDate);
+
+  if (error) throw new Error("Failed to clear leaves between dates: " + error.message);
+  return true;
+}
