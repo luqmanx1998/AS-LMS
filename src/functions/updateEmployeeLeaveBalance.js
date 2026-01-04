@@ -1,12 +1,14 @@
 import supabase from "./supabase";
 
-/**
- * Updates an employee's total_leaves JSON when a leave is approved.
- * Automatically deducts the number of days approved.
- */
-export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate) {
+export async function updateEmployeeLeaveBalance(
+  employeeId,
+  leaveType,
+  startDate,
+  endDate,
+  dayFraction = 1
+) {
   try {
-    // 1️⃣ Fetch the employee’s current total_leaves
+    // 1️⃣ Fetch employee leave data
     const { data: employee, error: fetchError } = await supabase
       .from("employees")
       .select("total_leaves")
@@ -16,15 +18,25 @@ export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDat
     if (fetchError) throw fetchError;
     if (!employee?.total_leaves) throw new Error("Employee leave data not found");
 
-    // 2️⃣ Clone the JSON
+    // 2️⃣ Clone JSON safely
     const totalLeaves = { ...employee.total_leaves };
 
-    // 3️⃣ Calculate number of days taken
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const daysTaken = Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    // 3️⃣ Calculate leave amount
+    let leaveAmount;
 
-    // 4️⃣ Normalize leave types → keys inside total_leaves
+    const fraction = Number(dayFraction);
+
+    if (fraction === 0.5) {
+      leaveAmount = 0.5;
+    } else {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      leaveAmount =
+        Math.floor((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    }
+
+
+    // 4️⃣ Map leave type → JSON key
     const leaveTypeMap = {
       Annual: "annualLeave",
       Medical: "medicalLeave",
@@ -35,20 +47,20 @@ export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDat
     const leaveKey = leaveTypeMap[leaveType];
 
     if (!leaveKey || !totalLeaves[leaveKey]) {
-      console.warn("⚠️ No matching leave type in total_leaves:", leaveType);
+      console.warn("⚠️ Unknown leave type:", leaveType);
       return;
     }
 
-    // 5️⃣ Update remaining and used safely
+    // 5️⃣ Deduct safely (supports 0.5)
     totalLeaves[leaveKey].remaining = Math.max(
       0,
-      (totalLeaves[leaveKey].remaining || 0) - daysTaken
+      (totalLeaves[leaveKey].remaining || 0) - leaveAmount
     );
 
     totalLeaves[leaveKey].used =
-      (totalLeaves[leaveKey].used || 0) + daysTaken;
+      (totalLeaves[leaveKey].used || 0) + leaveAmount;
 
-    // 6️⃣ Update Supabase
+    // 6️⃣ Persist
     const { error: updateError } = await supabase
       .from("employees")
       .update({ total_leaves: totalLeaves })
@@ -57,7 +69,7 @@ export async function updateEmployeeLeaveBalance(employeeId, leaveType, startDat
     if (updateError) throw updateError;
 
     console.log(
-      `✅ Updated leave balance for ${employeeId}: -${daysTaken} days (${leaveType})`
+      `✅ Leave balance updated: -${leaveAmount} (${leaveType})`
     );
   } catch (err) {
     console.error("❌ Error updating leave balance:", err.message);

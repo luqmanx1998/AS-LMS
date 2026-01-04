@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import ReviewLeavesModal from "../ui/ReviewLeavesModal";
-import { getLeaveData } from "../functions/getLeaveData";
+import { getLeaveData, getLeaveDisplayLabel } from "../functions/getLeaveData";
 import { formatDate, formatDateRange } from "../functions/dateFunctions";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadAttachments } from "../functions/downloadAttachment";
@@ -20,7 +20,6 @@ function LeaveApplications() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
   const [showSpinner, setShowSpinner] = useState(false);
-  const [uiLeaves, setUiLeaves] = useState([]);
 
   // NEW STATE for date range deletion
   const [rangeStart, setRangeStart] = useState("");
@@ -66,22 +65,21 @@ function LeaveApplications() {
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / limit);
 
-  useEffect(() => {
-    setUiLeaves(leaves);
-  }, [leaves]);
+ const filteredLeaves = useMemo(() => {
+  return leaves.filter((leave) => {
+    const matchesStatus =
+      statusFilter === "All" ||
+      leave.status?.replace(/"/g, "") === statusFilter;
 
-  const filteredLeaves = useMemo(() => {
-    return uiLeaves.filter((leave) => {
-      const matchesStatus =
-        statusFilter === "All" ||
-        leave.status?.replace(/"/g, "") === statusFilter;
-      const matchesSearch =
-        leave.employees?.full_name
-          ?.toLowerCase()
-          .includes(searchTerm.toLowerCase()) || false;
-      return matchesStatus && matchesSearch;
-    });
-  }, [uiLeaves, statusFilter, searchTerm]);
+    const matchesSearch =
+      leave.employees?.full_name
+        ?.toLowerCase()
+        .includes(searchTerm.toLowerCase()) || false;
+
+    return matchesStatus && matchesSearch;
+  });
+}, [leaves, statusFilter, searchTerm]);
+
 
   if (isLoading) return <LoadingSpinner message="Loading..." />;
   if (isError) return <p>Error loading leaves: {error.message}</p>;
@@ -265,7 +263,9 @@ function LeaveApplications() {
                   <span className="body-2">
                     {capitalizeWords(leave.employees?.department)}
                   </span>
-                  <span className="body-2">{leave.leave_type}</span>
+                  <span className="body-2">
+                    {getLeaveDisplayLabel(leave)}
+                  </span>
                   <span className="body-2">{formatDate(leave.created_at)}</span>
                   <span className="body-2">
                     {formatDateRange(leave.start_date, leave.end_date)}

@@ -100,27 +100,34 @@ export default function EmpLeaves() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [showSpinner, setShowSpinner] = useState(false);
   const [isUnavailable, setIsUnavailable] = useState(false);
+  const [halfDayPeriod, setHalfDayPeriod] = useState(null);
+
 
   const leaveType = methods.watch("leaveType");
 
-  // ✔ Updated leave types
   const leaveOptions = [
-    { value: "Annual", label: "Annual Leave" },
-    { value: "Annual Appeal", label: "Annual Leave (Appeal)" }, // 👈 NEW
-    { value: "Medical", label: "Medical Leave" },
-    { value: "Compassionate", label: "Compassionate Leave" },
-    { value: "Hospitalisation", label: "Hospitalisation Leave" },
-    { value: "Unpaid", label: "Unpaid Leave" },
-  ];
+  { value: "Annual", label: "Annual Leave" },
+  { value: "Annual Half-Day", label: "Annual Leave (Half-Day)" }, // ⭐ ADD
+  { value: "Annual Appeal", label: "Annual Leave (Appeal)" },
+  { value: "Medical", label: "Medical Leave" },
+  { value: "Compassionate", label: "Compassionate Leave" },
+  { value: "Hospitalisation", label: "Hospitalisation Leave" },
+  { value: "Unpaid", label: "Unpaid Leave" },
+];
 
-  // 1. Fetch employee
+
+  // 1️⃣ Fetch employee
   const { data: employee, isLoading: empLoading } = useQuery({
     queryKey: ["currentEmployee"],
     queryFn: getCurrentEmployee,
     staleTime: 600_000,
   });
 
-  // 2. Fetch leaves
+  // ✅ Remaining Annual Leave (NEW)
+  const remainingAnnualLeave =
+    employee?.total_leaves?.annualLeave?.remaining ?? 0;
+
+  // 2️⃣ Fetch leaves
   const { data: leavesResponse, isLoading: leavesLoading } = useQuery({
     queryKey: ["leaves"],
     queryFn: () => getLeaveData(),
@@ -131,23 +138,22 @@ export default function EmpLeaves() {
     ? leavesResponse
     : leavesResponse?.leaves || [];
 
-  // 3. Blocked dates ONLY for Annual (NOT Appeal)
-  const disabledDates =
-    leaves
-      .filter(
-        (leave) =>
-          leave.leave_type === "Annual" &&
-          leave.status !== "Rejected" &&
-          leave.employees?.department === employee?.department
+  // 3️⃣ Blocked dates ONLY for Annual (NOT Appeal)
+  const disabledDates = leaves
+    .filter(
+      (leave) =>
+        leave.leave_type === "Annual" &&
+        leave.status !== "Rejected" &&
+        leave.employees?.department === employee?.department
+    )
+    .flatMap((leave) =>
+      getDatesBetween(
+        new Date(`${leave.start_date}T00:00:00`),
+        new Date(`${leave.end_date}T00:00:00`)
       )
-      .flatMap((leave) =>
-        getDatesBetween(
-          new Date(`${leave.start_date}T00:00:00`),
-          new Date(`${leave.end_date}T00:00:00`)
-        )
-      );
+    );
 
-  // 4. Mutation
+  // 4️⃣ Mutation
   const leaveMutation = useMutation({
     mutationFn: upsertLeaveData,
     onMutate: () => setShowSpinner(true),
@@ -174,30 +180,56 @@ export default function EmpLeaves() {
     },
   });
 
-  // 5. Date change handler
+  // 5️⃣ Date change handler
   const handleDateChange = (dates) => {
-    const [start, end] = dates;
-    setStartDate(start);
-    setEndDate(end);
+  // ⭐ NORMALIZE react-datepicker behaviour
+  const start = Array.isArray(dates) ? dates[0] : dates;
+  const end = Array.isArray(dates) ? dates[1] : dates;
 
-    methods.setValue("startDate", start);
-    methods.setValue("endDate", end);
+  setStartDate(start);
+  setEndDate(end ?? start);
 
-    // Only Annual blocks dates
-    if (leaveType === "Annual" && start && end) {
-      const range = getDatesBetween(start, end);
-      const hasOverlap = range.some((d) =>
-        disabledDates.some((blocked) => d.toDateString() === blocked.toDateString())
-      );
-      setIsUnavailable(hasOverlap);
-    } else {
-      setIsUnavailable(false);
-    }
-  };
+  methods.setValue("startDate", start);
+  methods.setValue("endDate", end ?? start);
 
-  // 6. Form submit
+  if (leaveType === "Annual" && start && end) {
+    const range = getDatesBetween(start, end);
+    const hasOverlap = range.some((d) =>
+      disabledDates.some(
+        (blocked) => d.toDateString() === blocked.toDateString()
+      )
+    );
+    setIsUnavailable(hasOverlap);
+  } else {
+    setIsUnavailable(false);
+  }
+};
+
+
+  // 6️⃣ Form submit
   const onSubmit = async (data) => {
     if (!employee) return;
+
+    // 🚫 BLOCK Annual Leave at 0 balance (NEW)
+    if (data.leaveType === "Annual" && remainingAnnualLeave <= 0) {
+      setPopup({
+        message:
+          "You have no remaining Annual Leave. Please apply using Annual Leave (Appeal).",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+      return;
+    }
+
+    if (data.leaveType === "Annual Half-Day" && remainingAnnualLeave < 0.5) {
+      setPopup({
+        message:
+          "You do not have enough Annual Leave balance for a half-day leave.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+      return;
+    }
 
     let uploadedUrls = [];
 
@@ -217,17 +249,29 @@ export default function EmpLeaves() {
     };
 
     leaveMutation.mutate({
-      employee_id: employee.id,
-      leave_type: data.leaveType,
-      start_date: formatDate(startDate),
-      end_date: formatDate(endDate),
-      attachments: uploadedUrls.length ? uploadedUrls : null,
-      status: "Pending",
-      remarks:
-        leaveType === "Annual Appeal" ? data.appealRemarks : null, // 👈 NEW
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
+  employee_id: employee.id,
+
+  // ⭐ Normalize leave type
+  leave_type:
+    data.leaveType === "Annual Half-Day" ? "Annual" : data.leaveType,
+
+  start_date: formatDate(startDate),
+  end_date: formatDate(endDate),
+
+  // ⭐ Half-day support
+  day_fraction: data.leaveType === "Annual Half-Day" ? 0.5 : 1,
+  half_day_period:
+    data.leaveType === "Annual Half-Day" ? halfDayPeriod : null,
+
+  attachments: uploadedUrls.length ? uploadedUrls : null,
+  status: "Pending",
+
+  remarks:
+    leaveType === "Annual Appeal" ? data.appealRemarks : null,
+
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+});
   };
 
   if (empLoading || leavesLoading)
@@ -261,6 +305,34 @@ export default function EmpLeaves() {
               />
             </div>
 
+            {/* ⭐ Half-Day selector (ADDITION ONLY) */}
+            {leaveType === "Annual Half-Day" && (
+              <div className="mt-3">
+                <p className="body-2 mb-1">Half-day period *</p>
+
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={halfDayPeriod === "AM"}
+                      onChange={() => setHalfDayPeriod("AM")}
+                    />
+                    First Half (AM)
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={halfDayPeriod === "PM"}
+                      onChange={() => setHalfDayPeriod("PM")}
+                    />
+                    Second Half (PM)
+                  </label>
+                </div>
+              </div>
+            )}
+
+
             {/* Appeal Reason */}
             {leaveType === "Annual Appeal" && (
               <div className="mt-3">
@@ -277,15 +349,18 @@ export default function EmpLeaves() {
             <div>
               <p className="body-2 mb-2">Date Range *</p>
               <DatePicker
-                selectsRange
+                selectsRange={leaveType !== "Annual Half-Day"}
+                selected={leaveType === "Annual Half-Day" ? startDate : null} // ⭐ FIX
                 startDate={startDate}
-                endDate={endDate}
+                endDate={leaveType === "Annual Half-Day" ? startDate : endDate}
                 onChange={handleDateChange}
                 minDate={new Date()}
                 excludeDates={leaveType === "Annual" ? disabledDates : []}
                 className="border border-[#DFE4EA] p-2 rounded-lg w-full"
-                placeholderText="Select date range"
+                placeholderText="Select date"
               />
+
+
 
               {startDate && endDate && (
                 <p
@@ -296,6 +371,12 @@ export default function EmpLeaves() {
                   {isUnavailable
                     ? "Some selected dates are already booked."
                     : "Selected dates are available!"}
+                </p>
+              )}
+
+              {leaveType === "Annual" && remainingAnnualLeave <= 0 && (
+                <p className="mt-1 text-sm text-red-600">
+                  You have no remaining Annual Leave. Please use Annual Leave (Appeal).
                 </p>
               )}
             </div>
@@ -338,7 +419,11 @@ export default function EmpLeaves() {
             {/* Submit */}
             <button
               type="submit"
-              disabled={isUnavailable || showSpinner}
+              disabled={
+                isUnavailable ||
+                showSpinner ||
+                (leaveType === "Annual" && remainingAnnualLeave <= 0)
+              }
               className={`pink-button w-[114px] ${
                 isUnavailable || showSpinner ? "opacity-50" : ""
               }`}

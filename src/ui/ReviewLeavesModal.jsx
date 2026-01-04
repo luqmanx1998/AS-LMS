@@ -1,6 +1,6 @@
 import { formatDate } from "../functions/dateFunctions";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { updateLeaveData } from "../functions/getLeaveData";
+import { getLeaveDisplayLabel, updateLeaveData } from "../functions/getLeaveData";
 import { updateEmployeeLeaveBalance } from "../functions/updateEmployeeLeaveBalance";
 import { useState, useRef } from "react";
 import { useNotification } from "../context/NotificationContext";
@@ -14,8 +14,8 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
   const isProcessingRef = useRef(false);
 
   const balanceMutation = useMutation({
-    mutationFn: async ({ employeeId, leaveType, startDate, endDate }) =>
-      await updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate),
+    mutationFn: async ({ employeeId, leaveType, startDate, endDate, dayFraction }) =>
+      await updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate, dayFraction),
     onSuccess: () => queryClient.invalidateQueries(["employees"]),
     onError: (err) => {
       console.error("❌ Failed to update employee leave balance:", err);
@@ -36,11 +36,13 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
 
       if (status === "Approved") {
         await balanceMutation.mutateAsync({
-          employeeId: leave.employee_id,
-          leaveType: leave.leave_type,
-          startDate: leave.start_date,
-          endDate: leave.end_date,
-        });
+            employeeId: leave.employee_id,
+            leaveType: leave.leave_type,
+            startDate: leave.start_date,
+            endDate: leave.end_date,
+            dayFraction: Number(leave.day_fraction) || 1
+, // ⭐ NEW
+          });
       }
 
       queryClient.invalidateQueries(["leaves"]);
@@ -133,7 +135,8 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
             <p>{leave.employees.full_name}</p>
 
             <p>Leave Type:</p>
-            <p>{leave.leave_type}</p>
+            <p>{getLeaveDisplayLabel(leave)}</p>
+
 
             <p>Date:</p>
             <p>

@@ -11,6 +11,7 @@ import { getCurrentEmployee } from "../functions/getCurrentEmployee";
 import { useNotification } from "../context/NotificationContext";
 import LoadingSpinner from "../ui/LoadingSpinner";
 import { cancelLeave } from "../functions/getLeaveData";
+import { getLeaveDisplayLabel } from "../functions/getLeaveData";
 
 
 // ======================================================
@@ -118,6 +119,8 @@ function AdminLeave() {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [leaveType, setLeaveType] = useState("");
   const [showSpinner, setShowSpinner] = useState(false);
+  const [halfDayPeriod, setHalfDayPeriod] = useState(null);
+
 
   const [page, setPage] = useState(1);
   const limit = 8;
@@ -126,13 +129,15 @@ function AdminLeave() {
   // Leave Options
   // =======================
   const leaveOptions = [
-    { value: "Annual", label: "Annual Leave" },
-    { value: "Annual Appeal", label: "Annual Leave (Appeal)" }, // ⭐ NEW
-    { value: "Medical", label: "Medical Leave" },
-    { value: "Compassionate", label: "Compassionate Leave" },
-    { value: "Hospitalisation", label: "Hospitalisation Leave" },
-    { value: "Unpaid", label: "Unpaid Leave" },
-  ];
+  { value: "Annual", label: "Annual Leave" },
+  { value: "Annual Half-Day", label: "Annual Leave (Half-Day)" }, // ⭐ ADD
+  { value: "Annual Appeal", label: "Annual Leave (Appeal)" },
+  { value: "Medical", label: "Medical Leave" },
+  { value: "Compassionate", label: "Compassionate Leave" },
+  { value: "Hospitalisation", label: "Hospitalisation Leave" },
+  { value: "Unpaid", label: "Unpaid Leave" },
+];
+
 
   // =======================
   // Fetch Employee
@@ -147,6 +152,10 @@ function AdminLeave() {
     staleTime: 600000,
     retry: false,
   });
+
+  const remainingAnnualLeave =
+  employee?.total_leaves?.annualLeave?.remaining ?? 0;
+
 
   // =======================
   // Fetch Leaves
@@ -258,6 +267,36 @@ function AdminLeave() {
   const onSubmit = async (data) => {
     if (!employee?.id) return;
 
+    if (data.leaveType === "Annual" && remainingAnnualLeave <= 0) {
+    setPopup({
+      message:
+        "You have no remaining Annual Leave. Please apply using Annual Leave (Appeal).",
+      type: "error",
+      onClose: () => setPopup(null),
+    });
+    return;
+  }
+
+  if (data.leaveType === "Annual Half-Day" && remainingAnnualLeave < 0.5) {
+  setPopup({
+    message:
+      "You do not have enough Annual Leave balance for a half-day leave.",
+    type: "error",
+    onClose: () => setPopup(null),
+  });
+  return;
+}
+
+if (data.leaveType === "Annual Half-Day" && !halfDayPeriod) {
+  setPopup({
+    message: "Please select AM or PM for half-day leave.",
+    type: "error",
+    onClose: () => setPopup(null),
+  });
+  return;
+}
+
+
     let uploadedUrls = [];
 
     if (data.documents?.length > 0) {
@@ -278,15 +317,21 @@ function AdminLeave() {
 
     const payload = {
       employee_id: employee.id,
-      leave_type: data.leaveType,
-      start_date: formatDateForDB(data.startDate),
-      end_date: formatDateForDB(data.endDate),
+      leave_type:
+        data.leaveType === "Annual Half-Day" ? "Annual" : data.leaveType,
+      start_date: formatDateForDB(startDate),
+      end_date: formatDateForDB(endDate),
+      day_fraction: data.leaveType === "Annual Half-Day" ? 0.5 : 1,
+      half_day_period:
+        data.leaveType === "Annual Half-Day" ? halfDayPeriod : null,
       attachments: uploadedUrls.length ? uploadedUrls : null,
       status: "Pending",
-      remarks: leaveType === "Annual Appeal" ? data.appealRemarks : null, // ⭐ NEW
+      remarks:
+        leaveType === "Annual Appeal" ? data.appealRemarks : null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
 
     leaveMutation.mutate(payload);
   };
@@ -295,23 +340,29 @@ function AdminLeave() {
   // Date Change Handler
   // =======================
   const handleDateChange = (dates) => {
-    const [start, end] = dates;
-    setStartDate(start);
-    setEndDate(end);
+  const start = Array.isArray(dates) ? dates[0] : dates;
+  const end = Array.isArray(dates) ? dates[1] : dates;
 
-    methods.setValue("startDate", start);
-    methods.setValue("endDate", end);
+  setStartDate(start);
+  setEndDate(end ?? start);
 
-    if (leaveType === "Annual" && start && end) {
-      const range = getDatesBetween(start, end);
-      const hasOverlap = range.some((d) =>
-        disabledDates.some((blocked) => d.toDateString() === blocked.toDateString())
-      );
-      setIsUnavailable(hasOverlap);
-    } else {
-      setIsUnavailable(false);
-    }
-  };
+  methods.setValue("startDate", start);
+  methods.setValue("endDate", end ?? start);
+
+  if (leaveType === "Annual" && start && end) {
+    const range = getDatesBetween(start, end);
+    const hasOverlap = range.some((d) =>
+      disabledDates.some(
+        (blocked) => d.toDateString() === blocked.toDateString()
+      )
+    );
+    setIsUnavailable(hasOverlap);
+  } else {
+    setIsUnavailable(false);
+  }
+};
+
+
 
   // =======================
   // Loading State
@@ -376,6 +427,33 @@ function AdminLeave() {
               <input type="hidden" {...methods.register("leaveType", { required: true })} />
             </div>
 
+            {leaveType === "Annual Half-Day" && (
+              <div className="mt-3">
+                <p className="body-2 text-[#4A4A4A] mb-1">Half-day period *</p>
+
+                <div className="flex gap-6">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={halfDayPeriod === "AM"}
+                      onChange={() => setHalfDayPeriod("AM")}
+                    />
+                    First Half (AM)
+                  </label>
+
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      checked={halfDayPeriod === "PM"}
+                      onChange={() => setHalfDayPeriod("PM")}
+                    />
+                    Second Half (PM)
+                  </label>
+                </div>
+              </div>
+            )}
+
+
             {/* ⭐ Appeal Reason Textarea */}
             {leaveType === "Annual Appeal" && (
               <div className="mt-3">
@@ -392,15 +470,21 @@ function AdminLeave() {
             <div>
               <p className="body-2 text-[#4A4A4A] mb-2">Date Range *</p>
               <DatePicker
-                selectsRange
+                selectsRange={leaveType !== "Annual Half-Day"}
+                selected={leaveType === "Annual Half-Day" ? startDate : null} // ⭐ REQUIRED
                 startDate={startDate}
-                endDate={endDate}
+                endDate={leaveType === "Annual Half-Day" ? startDate : endDate}
                 onChange={handleDateChange}
                 minDate={new Date()}
-                excludeDates={leaveType === "Annual" ? disabledDates : []}
-                placeholderText="Select date range"
+                excludeDates={
+                  leaveType === "Annual" || leaveType === "Annual Half-Day"
+                    ? disabledDates
+                    : []
+                }
+                placeholderText="Select date"
                 className="border-[#DFE4EA] border-[1px] p-2 rounded-lg w-full"
               />
+
 
               {startDate &&
                 endDate &&
@@ -507,7 +591,9 @@ function AdminLeave() {
                     key={leave.id}
                     className="grid grid-cols-5 w-[550px] lg:w-200 justify-items-center items-center gap-3 border-b border-[#F0F0F0] pb-2"
                   >
-                    <span className="body-2">{leave.leave_type}</span>
+                    <span className="body-2">
+                    {getLeaveDisplayLabel(leave)}
+                  </span>
 
                     <span className="body-2 text-center">
                       {formatDateRange(leave.start_date, leave.end_date)}

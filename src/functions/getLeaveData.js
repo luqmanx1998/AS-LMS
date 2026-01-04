@@ -3,10 +3,13 @@ import supabase from "./supabase";
 export async function getLeaveData(page = null, limit = null) {
   let query = supabase
     .from("leaves")
-    .select(`
+    .select(
+      `
       *,
       employees(full_name, department)
-    `, page !== null ? { count: "exact" } : undefined)
+    `,
+      page !== null ? { count: "exact" } : undefined
+    )
     .order("created_at", { ascending: false });
 
   if (page !== null && limit !== null) {
@@ -15,65 +18,36 @@ export async function getLeaveData(page = null, limit = null) {
     query = query.range(start, end);
   }
 
-  const { data: leaves, error, count } = await query;
+  const { data, error, count } = await query;
+  if (error) throw new Error("Failed to load leave data.");
 
-  if (error) {
-    console.error(error);
-    throw new Error("Failed to load leave data.");
-  }
-
-  console.log('🔍 getLeaveData debug:', { 
-    page, 
-    limit, 
-    leavesCount: leaves?.length,
-    returnType: page !== null ? 'OBJECT {leaves, total}' : 'ARRAY leaves',
-    firstLeave: leaves?.[0] 
-  });
-
-  // ✅ FIX: Make this VERY clear
-  if (page !== null) {
-    return { leaves: leaves || [], total: count || 0 };
-  } else {
-    // ✅ This should return JUST the array
-    return leaves || [];
-  }
+  return page !== null
+    ? { leaves: data || [], total: count || 0 }
+    : data || [];
 }
 
+// ======================================================
+// SUBMIT LEAVE + ADMIN EMAIL
+// ======================================================
 export async function upsertLeaveData(payload) {
-  // 1️⃣ Insert the new leave
   const { data, error } = await supabase
     .from("leaves")
     .upsert([payload])
-    .select(`
-      *,
-      employees(full_name, email)
-    `)
+    .select(`*, employees(full_name, email)`)
     .single();
 
-  if (error) {
-    console.error("Upsert failed:", error.message);
-    throw new Error("Failed to submit leave request.");
-  }
+  if (error) throw new Error("Failed to submit leave.");
 
-  // 2️⃣ Fetch all admins
-  const { data: admins, error: adminError } = await supabase
+  const { data: admins } = await supabase
     .from("employees")
-    .select("email, full_name")
+    .select("email")
     .eq("role", "admin");
 
-  if (adminError) {
-    console.error("Failed to load admin emails:", adminError);
-  }
+  const adminEmails = admins?.map((a) => a.email).filter(Boolean) || [];
 
-  const adminEmails = admins?.map((a) => a.email).filter(Boolean);
-
-  if (!adminEmails || adminEmails.length === 0) {
-    console.error("No admin emails found.");
-    return data; // Still return success for the leave submission
-  }
-
-  // 3️⃣ Build email body
-  const emailBody = {
+  if (adminEmails.length) {
+    await supabase.functions.invoke("send-email", {
+  body: {
     to: adminEmails,
     employeeName: data.employees.full_name,
     leaveType: data.leave_type,
@@ -81,30 +55,23 @@ export async function upsertLeaveData(payload) {
     endDate: data.end_date,
     status: "Pending",
     remarks: data.remarks || "",
-    adminNotification: true, // We can use this flag to change template later if needed
-  };
+    adminNotification: true,
 
-  // 4️⃣ Call edge function
-  try {
-    const { data: emailData, error: emailErr } = await supabase.functions.invoke(
-      "send-email",
-      { body: emailBody }
-    );
+    // ⭐ REQUIRED FOR HALF-DAY DISPLAY
+    dayFraction: data.day_fraction,
+    halfDayPeriod: data.half_day_period,
+  },
+});
 
-    if (emailErr) console.error("Admin email error:", emailErr);
-    else console.log("Admin notification sent:", emailData);
-
-  } catch (err) {
-    console.error("Edge function error:", err);
   }
 
   return data;
 }
 
-
+// ======================================================
+// REVIEW ACTION
+// ======================================================
 export async function updateLeaveData(payload) {
-  console.log("🔄 updateLeaveData called with payload:", payload);
-  
   const { data, error } = await supabase
     .from("leaves")
     .update({
@@ -113,83 +80,28 @@ export async function updateLeaveData(payload) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", payload.id)
-    .select(`
-      id,
-      leave_type,
-      start_date,
-      end_date,
-      status,
-      remarks,
-      employees ( email, full_name )
-    `)
+    .select(`*, employees(email, full_name)`)
     .single();
 
-  if (error) {
-    console.error("❌ Error updating leave:", error);
-    return { data, error };
-  }
+  if (error) throw error;
 
-  console.log("✅ Leave updated successfully:", data);
+  await supabase.functions.invoke("send-email", {
+  body: {
+    to: data.employees.email,
+    employeeName: data.employees.full_name,
+    leaveType: data.leave_type,
+    startDate: data.start_date,
+    endDate: data.end_date,
+    status: data.status,
+    remarks: data.remarks,
 
-  // Check if we have the necessary data for email
-  if (!data.employees?.email) {
-    console.error("❌ No employee email found:", data);
-    return { data, error: new Error("No employee email found") };
-  }
-
-  console.log("📧 Preparing to send email to:", data.employees.email);
-
-    try {
-      console.log("📨 Calling Edge Function...");
-          const { data: emailData, error: emailError } = await supabase.functions.invoke("send-email", {
-    body: {
-      to: data.employees.email,
-      employeeName: data.employees.full_name,
-      leaveType: data.leave_type,
-      startDate: data.start_date,
-      endDate: data.end_date,
-      status: data.status,
-      remarks: data.remarks,
-    }
+    // ⭐ REQUIRED FOR HALF-DAY DISPLAY
+    dayFraction: data.day_fraction,
+    halfDayPeriod: data.half_day_period,
+  },
   });
 
-
-    console.log("📧 Edge Function response:", { emailData, emailError });
-
-    if (emailError) {
-      console.error("❌ Edge Function error:", emailError);
-    } else {
-      console.log("✅ Edge Function success:", emailData);
-    }
-
-    return { data, emailError };
-  } catch (edgeError) {
-    console.error("❌ Edge Function invocation failed:", edgeError);
-    return { data, error: edgeError };
-  }
-}
-
-
-export async function getLeavesByEmployee(employeeId) {
-  const { data: leaves, error } = await supabase
-    .from("leaves")
-    .select(`
-      id,
-      leave_type,
-      start_date,
-      end_date,
-      status,
-      created_at
-    `)
-    .eq("employee_id", employeeId)
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error(error);
-    throw new Error("Failed to load leave history.");
-  }
-
-  return leaves;
+  return data;
 }
 
 export async function cancelLeave(id) {
@@ -197,17 +109,44 @@ export async function cancelLeave(id) {
     .from("leaves")
     .update({
       status: "Cancelled",
+      remarks: "Cancelled by employee",
       updated_at: new Date().toISOString(),
-      remarks: "Cancelled by employee"
     })
     .eq("id", id)
     .select()
     .single();
 
-  if (error) {
-    console.error("❌ Error cancelling leave:", error);
-    throw new Error("Failed to cancel leave");
+  if (error) throw error;
+  return data;
+}
+
+export function getLeaveDisplayLabel(leave) {
+  if (
+    leave.leave_type === "Annual" &&
+    Number(leave.day_fraction) === 0.5
+  ) {
+    return `Annual Leave (Half-Day${leave.half_day_period ? ` – ${leave.half_day_period}` : ""})`;
   }
 
-  return data;
+  return `${leave.leave_type} Leave`;
+}
+
+// ======================================================
+// GET LEAVES BY EMPLOYEE (FOR VIEW HISTORY MODAL)
+// ======================================================
+export async function getLeavesByEmployee(employeeId) {
+  if (!employeeId) return [];
+
+  const { data, error } = await supabase
+    .from("leaves")
+    .select("*")
+    .eq("employee_id", employeeId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Failed to fetch employee leave history:", error.message);
+    throw new Error("Failed to load leave history.");
+  }
+
+  return data || [];
 }
