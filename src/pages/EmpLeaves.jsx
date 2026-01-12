@@ -102,19 +102,22 @@ export default function EmpLeaves() {
   const [isUnavailable, setIsUnavailable] = useState(false);
   const [halfDayPeriod, setHalfDayPeriod] = useState(null);
 
-
   const leaveType = methods.watch("leaveType");
 
   const leaveOptions = [
-  { value: "Annual", label: "Annual Leave" },
-  { value: "Annual Half-Day", label: "Annual Leave (Half-Day)" }, // ⭐ ADD
-  { value: "Annual Appeal", label: "Annual Leave (Appeal)" },
-  { value: "Medical", label: "Medical Leave" },
-  { value: "Compassionate", label: "Compassionate Leave" },
-  { value: "Hospitalisation", label: "Hospitalisation Leave" },
-  { value: "Unpaid", label: "Unpaid Leave" },
-];
+    { value: "Annual", label: "Annual Leave" },
+    { value: "Annual Half-Day", label: "Annual Leave (Half-Day)" },
+    { value: "Annual Appeal", label: "Annual Leave (Appeal)" },
+    { value: "Medical", label: "Medical Leave" },
+    { value: "Compassionate", label: "Compassionate Leave" },
+    { value: "Hospitalisation", label: "Hospitalisation Leave" },
+    { value: "Unpaid", label: "Unpaid Leave" },
+  ];
 
+  // ✅ Optional but good: clear half-day period when user changes leave type away
+  useEffect(() => {
+    if (leaveType !== "Annual Half-Day") setHalfDayPeriod(null);
+  }, [leaveType]);
 
   // 1️⃣ Fetch employee
   const { data: employee, isLoading: empLoading } = useQuery({
@@ -123,7 +126,7 @@ export default function EmpLeaves() {
     staleTime: 600_000,
   });
 
-  // ✅ Remaining Annual Leave (NEW)
+  // ✅ Remaining Annual Leave
   const remainingAnnualLeave =
     employee?.total_leaves?.annualLeave?.remaining ?? 0;
 
@@ -138,7 +141,7 @@ export default function EmpLeaves() {
     ? leavesResponse
     : leavesResponse?.leaves || [];
 
-  // 3️⃣ Blocked dates ONLY for Annual (NOT Appeal)
+  // 3️⃣ Blocked dates ONLY for Annual
   const disabledDates = leaves
     .filter(
       (leave) =>
@@ -164,11 +167,15 @@ export default function EmpLeaves() {
         type: "success",
         onClose: () => setPopup(null),
       });
+
       queryClient.invalidateQueries(["leaves"]);
+
       methods.reset();
       setStartDate(null);
       setEndDate(null);
       setSelectedFiles([]);
+      setHalfDayPeriod(null); // ✅ reset
+      setIsUnavailable(false); // ✅ reset (minor)
     },
     onError: () => {
       setShowSpinner(false);
@@ -182,39 +189,45 @@ export default function EmpLeaves() {
 
   // 5️⃣ Date change handler
   const handleDateChange = (dates) => {
-  // ⭐ NORMALIZE react-datepicker behaviour
-  const start = Array.isArray(dates) ? dates[0] : dates;
-  const end = Array.isArray(dates) ? dates[1] : dates;
+    const start = Array.isArray(dates) ? dates[0] : dates;
+    const end = Array.isArray(dates) ? dates[1] : dates;
 
-  setStartDate(start);
-  setEndDate(end ?? start);
+    setStartDate(start);
+    setEndDate(end ?? start);
 
-  methods.setValue("startDate", start);
-  methods.setValue("endDate", end ?? start);
+    methods.setValue("startDate", start);
+    methods.setValue("endDate", end ?? start);
 
-  if (leaveType === "Annual" && start && end) {
-    const range = getDatesBetween(start, end);
-    const hasOverlap = range.some((d) =>
-      disabledDates.some(
-        (blocked) => d.toDateString() === blocked.toDateString()
-      )
-    );
-    setIsUnavailable(hasOverlap);
-  } else {
-    setIsUnavailable(false);
-  }
-};
-
+    if (leaveType === "Annual" && start && end) {
+      const range = getDatesBetween(start, end);
+      const hasOverlap = range.some((d) =>
+        disabledDates.some(
+          (blocked) => d.toDateString() === blocked.toDateString()
+        )
+      );
+      setIsUnavailable(hasOverlap);
+    } else {
+      setIsUnavailable(false);
+    }
+  };
 
   // 6️⃣ Form submit
   const onSubmit = async (data) => {
     if (!employee) return;
 
-    // 🚫 BLOCK Annual Leave at 0 balance (NEW)
     if (data.leaveType === "Annual" && remainingAnnualLeave <= 0) {
       setPopup({
         message:
           "You have no remaining Annual Leave. Please apply using Annual Leave (Appeal).",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+      return;
+    }
+
+    if (data.leaveType === "Annual Half-Day" && !halfDayPeriod) {
+      setPopup({
+        message: "Please select AM or PM for half-day leave.",
         type: "error",
         onClose: () => setPopup(null),
       });
@@ -231,13 +244,13 @@ export default function EmpLeaves() {
       return;
     }
 
-    let uploadedUrls = [];
+    let uploadedFiles = [];
 
     if (data.documents?.length > 0) {
       setShowSpinner(true);
       for (const file of data.documents) {
-        const url = await uploadAttachment(employee.id, file);
-        uploadedUrls.push({ name: file.name, url });
+        const uploaded = await uploadAttachment(employee.id, file);
+        uploadedFiles.push(uploaded); // ✅ { name, path }
       }
     }
 
@@ -249,29 +262,26 @@ export default function EmpLeaves() {
     };
 
     leaveMutation.mutate({
-  employee_id: employee.id,
+      employee_id: employee.id,
 
-  // ⭐ Normalize leave type
-  leave_type:
-    data.leaveType === "Annual Half-Day" ? "Annual" : data.leaveType,
+      leave_type:
+        data.leaveType === "Annual Half-Day" ? "Annual" : data.leaveType,
 
-  start_date: formatDate(startDate),
-  end_date: formatDate(endDate),
+      start_date: formatDate(startDate),
+      end_date: formatDate(endDate),
 
-  // ⭐ Half-day support
-  day_fraction: data.leaveType === "Annual Half-Day" ? 0.5 : 1,
-  half_day_period:
-    data.leaveType === "Annual Half-Day" ? halfDayPeriod : null,
+      day_fraction: data.leaveType === "Annual Half-Day" ? 0.5 : 1,
+      half_day_period: data.leaveType === "Annual Half-Day" ? halfDayPeriod : null,
 
-  attachments: uploadedUrls.length ? uploadedUrls : null,
-  status: "Pending",
+      attachments: uploadedFiles.length ? uploadedFiles : null,
 
-  remarks:
-    leaveType === "Annual Appeal" ? data.appealRemarks : null,
+      status: "Pending",
 
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-});
+      remarks: leaveType === "Annual Appeal" ? data.appealRemarks : null,
+
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
   };
 
   if (empLoading || leavesLoading)
@@ -305,7 +315,7 @@ export default function EmpLeaves() {
               />
             </div>
 
-            {/* ⭐ Half-Day selector (ADDITION ONLY) */}
+            {/* Half-Day selector */}
             {leaveType === "Annual Half-Day" && (
               <div className="mt-3">
                 <p className="body-2 mb-1">Half-day period *</p>
@@ -332,7 +342,6 @@ export default function EmpLeaves() {
               </div>
             )}
 
-
             {/* Appeal Reason */}
             {leaveType === "Annual Appeal" && (
               <div className="mt-3">
@@ -350,7 +359,7 @@ export default function EmpLeaves() {
               <p className="body-2 mb-2">Date Range *</p>
               <DatePicker
                 selectsRange={leaveType !== "Annual Half-Day"}
-                selected={leaveType === "Annual Half-Day" ? startDate : null} // ⭐ FIX
+                selected={leaveType === "Annual Half-Day" ? startDate : null}
                 startDate={startDate}
                 endDate={leaveType === "Annual Half-Day" ? startDate : endDate}
                 onChange={handleDateChange}
@@ -359,8 +368,6 @@ export default function EmpLeaves() {
                 className="border border-[#DFE4EA] p-2 rounded-lg w-full"
                 placeholderText="Select date"
               />
-
-
 
               {startDate && endDate && (
                 <p
@@ -376,7 +383,8 @@ export default function EmpLeaves() {
 
               {leaveType === "Annual" && remainingAnnualLeave <= 0 && (
                 <p className="mt-1 text-sm text-red-600">
-                  You have no remaining Annual Leave. Please use Annual Leave (Appeal).
+                  You have no remaining Annual Leave. Please use Annual Leave
+                  (Appeal).
                 </p>
               )}
             </div>
