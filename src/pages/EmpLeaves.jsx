@@ -116,8 +116,12 @@ export default function EmpLeaves() {
 
   // ✅ Optional but good: clear half-day period when user changes leave type away
   useEffect(() => {
-    if (leaveType !== "Annual Half-Day") setHalfDayPeriod(null);
-  }, [leaveType]);
+  if (leaveType !== "Annual Half-Day") {
+    setHalfDayPeriod(null);
+    setEndDate(null); // ✅ important for range picker UX
+  }
+}, [leaveType]);
+
 
   // 1️⃣ Fetch employee
   const { data: employee, isLoading: empLoading } = useQuery({
@@ -189,27 +193,39 @@ export default function EmpLeaves() {
 
   // 5️⃣ Date change handler
   const handleDateChange = (dates) => {
+  // HALF DAY (single date)
+  if (leaveType === "Annual Half-Day") {
     const start = Array.isArray(dates) ? dates[0] : dates;
-    const end = Array.isArray(dates) ? dates[1] : dates;
-
     setStartDate(start);
-    setEndDate(end ?? start);
+    setEndDate(start);
 
     methods.setValue("startDate", start);
-    methods.setValue("endDate", end ?? start);
+    methods.setValue("endDate", start);
 
-    if (leaveType === "Annual" && start && end) {
-      const range = getDatesBetween(start, end);
-      const hasOverlap = range.some((d) =>
-        disabledDates.some(
-          (blocked) => d.toDateString() === blocked.toDateString()
-        )
-      );
-      setIsUnavailable(hasOverlap);
-    } else {
-      setIsUnavailable(false);
-    }
-  };
+    setIsUnavailable(false);
+    return;
+  }
+
+  // RANGE MODE (array)
+  const [start, end] = Array.isArray(dates) ? dates : [dates, null];
+
+  setStartDate(start);
+  setEndDate(end); // ✅ keep null until second click
+
+  methods.setValue("startDate", start);
+  methods.setValue("endDate", end);
+
+  if (leaveType === "Annual" && start && end) {
+    const range = getDatesBetween(start, end);
+    const hasOverlap = range.some((d) =>
+      disabledDates.some((blocked) => d.toDateString() === blocked.toDateString())
+    );
+    setIsUnavailable(hasOverlap);
+  } else {
+    setIsUnavailable(false);
+  }
+};
+
 
   // 6️⃣ Form submit
   const onSubmit = async (data) => {
@@ -357,17 +373,20 @@ export default function EmpLeaves() {
             {/* Date Range */}
             <div>
               <p className="body-2 mb-2">Date Range *</p>
-              <DatePicker
-                selectsRange={leaveType !== "Annual Half-Day"}
-                selected={leaveType === "Annual Half-Day" ? startDate : null}
-                startDate={startDate}
-                endDate={leaveType === "Annual Half-Day" ? startDate : endDate}
-                onChange={handleDateChange}
-                minDate={new Date()}
-                excludeDates={leaveType === "Annual" ? disabledDates : []}
-                className="border border-[#DFE4EA] p-2 rounded-lg w-full"
-                placeholderText="Select date"
-              />
+             <DatePicker
+              selectsRange={leaveType !== "Annual Half-Day"}
+              {...(leaveType === "Annual Half-Day"
+                ? { selected: startDate }
+                : {})}
+              startDate={startDate}
+              endDate={leaveType === "Annual Half-Day" ? startDate : endDate}
+              onChange={handleDateChange}
+              minDate={new Date()}
+              excludeDates={leaveType === "Annual" ? disabledDates : []}
+              className="border border-[#DFE4EA] p-2 rounded-lg w-full"
+              placeholderText="Select date"
+            />
+
 
               {startDate && endDate && (
                 <p
