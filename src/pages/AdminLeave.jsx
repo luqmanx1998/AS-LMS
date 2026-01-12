@@ -303,7 +303,7 @@ if (data.leaveType === "Annual Half-Day" && !halfDayPeriod) {
       setShowSpinner(true);
       for (const file of data.documents) {
         const url = await uploadAttachment(employee.id, file);
-        uploadedUrls.push({ name: file.name, url });
+        uploadedUrls.push(url);
       }
     }
 
@@ -340,27 +340,41 @@ if (data.leaveType === "Annual Half-Day" && !halfDayPeriod) {
   // Date Change Handler
   // =======================
   const handleDateChange = (dates) => {
-  const start = Array.isArray(dates) ? dates[0] : dates;
-  const end = Array.isArray(dates) ? dates[1] : dates;
+  // RANGE MODE (react-datepicker returns [start, end])
+  if (Array.isArray(dates)) {
+    const [start, end] = dates;
+
+    setStartDate(start);
+    setEndDate(end); // ✅ keep null until 2nd click
+
+    methods.setValue("startDate", start);
+    methods.setValue("endDate", end);
+
+    if (leaveType === "Annual" && start && end) {
+      const range = getDatesBetween(start, end);
+      const hasOverlap = range.some((d) =>
+        disabledDates.some((blocked) => d.toDateString() === blocked.toDateString())
+      );
+      setIsUnavailable(hasOverlap);
+    } else {
+      setIsUnavailable(false);
+    }
+
+    return;
+  }
+
+  // SINGLE DATE MODE (react-datepicker returns a Date)
+  const start = dates;
 
   setStartDate(start);
-  setEndDate(end ?? start);
+  setEndDate(start); // ✅ single-day leave
 
   methods.setValue("startDate", start);
-  methods.setValue("endDate", end ?? start);
+  methods.setValue("endDate", start);
 
-  if (leaveType === "Annual" && start && end) {
-    const range = getDatesBetween(start, end);
-    const hasOverlap = range.some((d) =>
-      disabledDates.some(
-        (blocked) => d.toDateString() === blocked.toDateString()
-      )
-    );
-    setIsUnavailable(hasOverlap);
-  } else {
-    setIsUnavailable(false);
-  }
+  setIsUnavailable(false);
 };
+
 
 
 
