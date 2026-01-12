@@ -5,13 +5,40 @@ import { updateEmployeeLeaveBalance } from "../functions/updateEmployeeLeaveBala
 import { useState, useRef } from "react";
 import { useNotification } from "../context/NotificationContext";
 import Portal from "./Portal";
+import supabase from "../functions/supabase";
 
 function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
   const [remark, setRemark] = useState(leave.remarks || "");
   const { setPopup } = useNotification();
   const queryClient = useQueryClient();
-  
+
   const isProcessingRef = useRef(false);
+
+  // ✅ Open attachment using a signed URL (supports old + new formats)
+  const openAttachment = async (file) => {
+    try {
+      const path = file?.path ?? file?.url?.path;
+      if (!path) {
+        console.warn("⚠️ Missing attachment path:", file);
+        return;
+      }
+
+      const { data, error } = await supabase.storage
+        .from("attachments")
+        .createSignedUrl(path, 60 * 5);
+
+      if (error) throw error;
+
+      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    } catch (err) {
+      console.error("❌ Failed to open attachment:", err);
+      setPopup({
+        message: "Failed to open attachment.",
+        type: "error",
+        onClose: () => setPopup(null),
+      });
+    }
+  };
 
   const balanceMutation = useMutation({
     mutationFn: async ({ employeeId, leaveType, startDate, endDate, dayFraction }) =>
@@ -36,13 +63,12 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
 
       if (status === "Approved") {
         await balanceMutation.mutateAsync({
-            employeeId: leave.employee_id,
-            leaveType: leave.leave_type,
-            startDate: leave.start_date,
-            endDate: leave.end_date,
-            dayFraction: Number(leave.day_fraction) || 1
-, // ⭐ NEW
-          });
+          employeeId: leave.employee_id,
+          leaveType: leave.leave_type,
+          startDate: leave.start_date,
+          endDate: leave.end_date,
+          dayFraction: Number(leave.day_fraction) || 1, // ⭐ NEW
+        });
       }
 
       queryClient.invalidateQueries(["leaves"]);
@@ -68,10 +94,8 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
   });
 
   const handleStatusChange = (status) => {
-    // Close modal immediately
     setOpenReviewModal(false);
 
-    // Show confirmation popup
     setPopup({
       message:
         status === "Approved"
@@ -79,7 +103,6 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
           : "Are you sure you want to reject this leave request?",
       type: "confirm",
       onConfirm: () => {
-        // User confirmed - start processing
         setShowSpinner(true);
         isProcessingRef.current = true;
         leaveStatusMutation.mutate({
@@ -90,17 +113,11 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
         setPopup(null);
       },
       onCancel: () => {
-        // User cancelled - reopen modal ONLY if not processing
-        if (!isProcessingRef.current) {
-          setOpenReviewModal(true);
-        }
+        if (!isProcessingRef.current) setOpenReviewModal(true);
         setPopup(null);
       },
       onClose: () => {
-        // User closed popup - reopen modal ONLY if not processing
-        if (!isProcessingRef.current) {
-          setOpenReviewModal(true);
-        }
+        if (!isProcessingRef.current) setOpenReviewModal(true);
         setPopup(null);
       },
     });
@@ -137,7 +154,6 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
             <p>Leave Type:</p>
             <p>{getLeaveDisplayLabel(leave)}</p>
 
-
             <p>Date:</p>
             <p>
               {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
@@ -146,17 +162,21 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
             <p>Attachments:</p>
             <div className="flex flex-col gap-2">
               {leave.attachments?.length ? (
-                leave.attachments.map((file) => (
-                  <a
-                    key={file.url}
-                    href={file.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 underline"
-                  >
-                    {file.name}
-                  </a>
-                ))
+                leave.attachments.map((file, idx) => {
+                  const key = file?.path ?? file?.url?.path ?? `${leave.id}-${idx}`;
+                  const label = file?.name ?? file?.url?.name ?? "Attachment";
+
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => openAttachment(file)}
+                      className="text-blue-600 underline text-left"
+                    >
+                      {label}
+                    </button>
+                  );
+                })
               ) : (
                 <span>None</span>
               )}
