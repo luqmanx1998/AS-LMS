@@ -40,9 +40,31 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
     }
   };
 
+  /**
+   * IMPORTANT:
+   * - Your current updateEmployeeLeaveBalance() ONLY deducts.
+   * - For Phase 1 refund, we will add a second function OR extend it to support refund.
+   *
+   * For now, we’ll assume we’ll extend it with a new param: `mode: "deduct" | "refund"`.
+   * We'll implement that in Step 2.
+   */
   const balanceMutation = useMutation({
-    mutationFn: async ({ employeeId, leaveType, startDate, endDate, dayFraction }) =>
-      await updateEmployeeLeaveBalance(employeeId, leaveType, startDate, endDate, dayFraction),
+    mutationFn: async ({
+      employeeId,
+      leaveType,
+      startDate,
+      endDate,
+      dayFraction,
+      mode, // "deduct" | "refund"
+    }) =>
+      await updateEmployeeLeaveBalance(
+        employeeId,
+        leaveType,
+        startDate,
+        endDate,
+        dayFraction,
+        mode
+      ),
     onSuccess: () => queryClient.invalidateQueries(["employees"]),
     onError: (err) => {
       console.error("❌ Failed to update employee leave balance:", err);
@@ -58,16 +80,32 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
 
   const leaveStatusMutation = useMutation({
     mutationFn: updateLeaveData,
-    onSuccess: async (_, variables) => {
-      const { status } = variables;
 
-      if (status === "Approved") {
+    onSuccess: async (_, variables) => {
+      const nextStatus = variables.status;
+      const prevStatus = leave.status; // ✅ what it was BEFORE this change
+
+      // ✅ Deduct only when transitioning INTO Approved
+      if (nextStatus === "Approved" && prevStatus !== "Approved") {
         await balanceMutation.mutateAsync({
           employeeId: leave.employee_id,
           leaveType: leave.leave_type,
           startDate: leave.start_date,
           endDate: leave.end_date,
-          dayFraction: Number(leave.day_fraction) || 1, // ⭐ NEW
+          dayFraction: Number(leave.day_fraction) || 1,
+          mode: "deduct",
+        });
+      }
+
+      // ✅ REFUND only when transitioning OUT OF Approved into Rejected
+      if (prevStatus === "Approved" && nextStatus === "Rejected") {
+        await balanceMutation.mutateAsync({
+          employeeId: leave.employee_id,
+          leaveType: leave.leave_type,
+          startDate: leave.start_date,
+          endDate: leave.end_date,
+          dayFraction: Number(leave.day_fraction) || 1,
+          mode: "refund",
         });
       }
 
@@ -76,11 +114,12 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
       isProcessingRef.current = false;
 
       setPopup({
-        message: `Leave ${status.toLowerCase()} successfully!`,
+        message: `Leave ${nextStatus.toLowerCase()} successfully!`,
         type: "success",
         onClose: () => setPopup(null),
       });
     },
+
     onError: (error) => {
       console.error("Failed to update leave status:", error);
       setShowSpinner(false);
@@ -105,11 +144,13 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
       onConfirm: () => {
         setShowSpinner(true);
         isProcessingRef.current = true;
+
         leaveStatusMutation.mutate({
           id: leave.id,
           status,
           remarks: remark,
         });
+
         setPopup(null);
       },
       onCancel: () => {
@@ -163,7 +204,8 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
             <div className="flex flex-col gap-2">
               {leave.attachments?.length ? (
                 leave.attachments.map((file, idx) => {
-                  const key = file?.path ?? file?.url?.path ?? `${leave.id}-${idx}`;
+                  const key =
+                    file?.path ?? file?.url?.path ?? `${leave.id}-${idx}`;
                   const label = file?.name ?? file?.url?.name ?? "Attachment";
 
                   return (
@@ -198,6 +240,7 @@ function ReviewLeavesModal({ setOpenReviewModal, leave, setShowSpinner }) {
               >
                 Approve
               </button>
+
               <button
                 className="bg-[#FF4120] text-white rounded-md px-4 py-2 cursor-pointer hover:bg-[#e03a1d]"
                 onClick={() => handleStatusChange("Rejected")}
